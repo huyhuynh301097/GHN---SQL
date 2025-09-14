@@ -1,0 +1,171 @@
+-- Pivot --
+
+WITH 
+  raw AS (
+    SELECT
+      DATE_TRUNC('Month', DATE(orderdate)) AS orderdate_time
+      ,fromregionshortname
+      ,COUNT(1) AS total
+    FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate"
+    WHERE
+      createddate >= DATE_TRUNC('Month', CURRENT_DATE) - INTERVAL '2' Month
+      AND HOUR(createddate) >= 18
+      AND clientid IN (18692)
+      AND NOT isexpecteddropoff
+      AND NOT currentstatus IN ('cancel')
+      AND STRPOS(LOWER(channel), 'wh') <= 0
+    GROUP BY 1,2 
+  )
+, details AS (
+    SELECT
+      DATE_TRUNC('Month', DATE(orderdate)) AS orderdate_time
+      ,fromregionshortname
+      , CASE
+          WHEN
+            (DATE(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) = DATE(orderdate) AND DATE(createddate) = DATE(orderdate))
+            OR DATE(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) = DATE(orderdate) AND HOUR(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) < 12 THEN 'before 12h N'
+          WHEN DATE(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) = DATE(orderdate) AND HOUR(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) >= 12 THEN 'after 12h N'
+          ELSE 'after 12h N'
+        END AS note
+      , COUNT(1) AS vol
+    FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate"
+    WHERE
+      createddate >= DATE_TRUNC('Month', CURRENT_DATE) - INTERVAL '2' Month
+      AND HOUR(createddate) >= 18
+      AND clientid IN (18692)
+      AND NOT isexpecteddropoff
+      AND NOT currentstatus IN ('cancel')
+      AND STRPOS(LOWER(channel), 'wh') <= 0
+    GROUP BY 1, 2,3
+    )
+  SELECT
+    D.orderdate_time
+    , D.fromregionshortname
+    , note
+    , vol
+    , AVG(vol)/AVG(total) AS "%Ontime"
+  FROM details AS D
+  JOIN raw AS R
+    ON D.orderdate_time = R.orderdate_time AND D.fromregionshortname = R.fromregionshortname
+  Group by 1,2,3,4
+  
+-- Raw --
+SELECT
+  ordercode
+  ,DATE(createddate) as "NgayTao"
+  ,DATE(orderdate) as "NgayHenLay"
+  ,HOUR(orderdate) as "GioHenLay"
+  ,DATE(COALESCE(firstupdatedpickeduptime, endpicktime)) as "NgayLayThanhCong/NgayKetThucCaLayDauTien"
+  ,HOUR(COALESCE(firstupdatedpickeduptime, endpicktime)) as "GioLayThanhCong/GioKetThucCaLayDauTien"
+  , CASE
+      WHEN DATE(COALESCE(firstupdatedpickeduptime, endpicktime)) < DATE(orderdate) THEN 'Trước 12h'
+      WHEN (HOUR(COALESCE(firstupdatedpickeduptime, endpicktime)) < 12 AND DATE(COALESCE(firstupdatedpickeduptime, endpicktime)) = DATE(orderdate)) THEN 'Trước 12h'
+      ELSE 'Sau 12h'
+    END AS note
+FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate"
+WHERE
+  month(createddate) = 6
+  AND HOUR(createddate) >= 18
+  AND clientid IN (18692)
+  AND NOT isexpecteddropoff
+  AND NOT currentstatus IN ('cancel')
+  AND STRPOS(LOWER(channel), 'wh') <= 0
+  AND fromregionshortname = 'TTB'
+  
+-- Theo Seller --
+
+WITH 
+  raw AS (
+    SELECT
+      MONTH(orderdate) AS Time
+      ,fromprovince AS Province
+      ,C.clientcontactname AS Seller_Namce
+      ,COUNT(1) AS total
+    FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate" AS C
+    JOIN "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+      ON C.clientcontactname = GS."ClientContactName" AND C.fromprovince = GS."Ward_id"
+    WHERE
+      createddate >= DATE_TRUNC('Month', CURRENT_DATE) - INTERVAL '2' Month
+      AND HOUR(createddate) >= 18
+      AND clientid IN (18692)
+      AND NOT isexpecteddropoff
+      AND NOT currentstatus IN ('cancel')
+      AND STRPOS(LOWER(channel), 'wh') <= 0
+    GROUP BY 1,2,3
+  )
+, details AS (
+    SELECT
+      MONTH(orderdate) AS Time
+      ,fromprovince AS Province
+      ,C.clientcontactname AS Seller_Namce
+      , CASE
+          WHEN
+            (DATE(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) = DATE(orderdate) AND DATE(createddate) = DATE(orderdate))
+            OR DATE(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) = DATE(orderdate) AND HOUR(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) < 12 THEN 'before 12h N'
+          WHEN DATE(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) = DATE(orderdate) AND HOUR(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) >= 12 THEN 'after 12h N'
+          ELSE 'after 12h N'
+        END AS note
+      , COUNT(1) AS vol
+    FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate" AS C
+    JOIN "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+      ON C.clientcontactname = GS."ClientContactName" AND C.fromprovince = GS."Ward_id"
+    WHERE
+      createddate >= DATE_TRUNC('Month', CURRENT_DATE) - INTERVAL '2' Month
+      AND HOUR(createddate) >= 18
+      AND clientid IN (18692)
+      AND NOT isexpecteddropoff
+      AND NOT currentstatus IN ('cancel')
+      AND STRPOS(LOWER(channel), 'wh') <= 0
+    GROUP BY 1, 2, 3, 4
+    )
+  SELECT
+    D.Time
+    ,D.Province
+    ,D.Seller_Namce
+    , note
+    , vol
+    , AVG(vol)/AVG(total) AS "%Ontime"
+  FROM details AS D
+  JOIN raw AS R
+    ON D.Time = R.Time AND D.Province = R.Province AND D.Seller_Namce = R.Seller_Namce
+  Group by 1,2,3,4,5
+
+-- Reason fail PU --
+
+WITH
+details AS (
+  SELECT
+    DATE_TRUNC('Month', DATE(createddate)) AS createddate_time
+    , IF(STRPOS(firstfailpicknote, 'hẹn lại ngày lấy') > 0, 'Người gửi hẹn lại ngày lấy hàng', firstfailpicknote) AS firstfailpicknote
+    , CASE
+        WHEN currentstatus = 'ready_to_pick' THEN currentstatus
+        WHEN
+          DATE(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) = DATE(orderdate) AND DATE(createddate) = DATE(orderdate)
+          OR DATE(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) = DATE(orderdate) AND HOUR(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) < 12 THEN 'before 12h N'
+        WHEN DATE(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) = DATE(orderdate) AND HOUR(COALESCE(firstcreatedpickeduptime, firstupdatedpickeduptime, endpicktime)) >= 12 THEN 'after 12h N'
+        ELSE 'after 12h N+'
+      END AS note
+    , COUNT(1) AS vol
+  FROM "ghn-reporting".ka.dtm_ka_v3_createddate AS C
+  JOIN "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+    ON C.clientcontactname = GS."ClientContactName" AND C.fromprovince = GS."Ward_id"
+  WHERE
+    createddate >= DATE_TRUNC('Month', CURRENT_DATE) - INTERVAL '2' Month
+    AND HOUR(createddate) >= 18
+    AND clientid IN (18692)
+    AND NOT isexpecteddropoff
+    AND NOT currentstatus IN ('cancel')
+    AND STRPOS(LOWER(channel), 'wh') <= 0
+  GROUP BY 1, 2, 3
+  ORDER BY 1, 2, 3
+)
+SELECT
+  createddate_time
+  , CASE
+      WHEN (firstfailpicknote IS NULL OR firstfailpicknote = '') THEN '*** Lần lấy đầu tiên thành công'
+      ELSE firstfailpicknote
+    END firstfailpicknote
+  , note
+  , vol
+FROM details
+ORDER BY 1,2

@@ -1,0 +1,117 @@
+-------------------------------------------------------------------------------- Điều kiện chỉ lấy data ngày chủ nhật
+AND EXTRACT(DAY_OF_WEEK FROM C.orderdate) = 7 
+
+
+-------------------------------------------------------------------------------- Đo performance Ontime 1st PU theo Logic Penalty
+,CASE
+  WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+    OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+  ELSE 0
+END AS OntimeFirstPU
+,CASE
+  WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+    OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 0
+  ELSE 1
+END AS LateFirstPU
+,CASE
+  WHEN (HOUR(C.orderdate) < 18 AND DATE(C.endpicktime) <= DATE(C.orderdate)) 
+    OR (HOUR(C.orderdate) >= 18 AND COALESCE(DATE(C.endpicktime), CURRENT_DATE) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+  ELSE 0 
+END OntimeSuccessPU
+,CASE
+  WHEN (HOUR(C.orderdate) < 18 AND DATE(C.endpicktime) <= DATE(C.orderdate)) 
+    OR (HOUR(C.orderdate) >= 18 AND COALESCE(DATE(C.endpicktime), CURRENT_DATE) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 0
+  ELSE 1
+END LateSuccessPU
+,CASE
+  WHEN C.endpicktime IS NOT NULL THEN 1
+  ELSE 0
+END PickupSuccess
+,ROUND((SUM(OntimeFirstPU)/AVG(Volume_Created)),4) AS "%Ontime1stPU"
+,SUM(LateFirstPU)/AVG(TotalVolume) AS "%1stContribute"
+
+-------------------------------------------------------------------------------- Đo performance Ontime 1st PU theo Logic Penalty
+/*CTE các ngày lễ, Double day*/
+event_days AS (
+  SELECT CAST(date_column AS DATE) AS Date_SLA
+  FROM 
+    (VALUES 
+  -- Double days
+    '2024-10-10', '2024-10-11', '2024-10-12', '2024-11-11', '2024-11-12', '2024-11-13', '2024-12-12', '2024-12-13', '2024-12-14',
+    '2025-01-15', '2025-01-16', '2025-01-17', '2025-02-02', '2025-02-03', '2025-02-04', '2025-03-03', '2025-03-04', '2025-03-05',
+    '2025-04-04', '2025-04-05', '2025-04-06', '2025-05-05', '2025-05-06', '2025-05-07', '2025-06-06', '2025-06-07', '2025-06-08',
+    '2025-07-07', '2025-07-08', '2025-07-09', '2025-08-08', '2025-08-09', '2025-08-10', '2025-09-09', '2025-09-10', '2025-09-11',
+    '2025-10-10', '2025-10-11', '2025-10-12', '2025-11-11', '2025-11-12', '2025-11-13', '2025-12-12', '2025-12-13', '2025-12-14',
+      
+    -- Holidays
+    '2025-01-01', '2025-01-25', '2025-01-26', '2025-01-27', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-01',
+    '2025-02-02', '2025-04-07', '2025-04-30', '2025-05-01', '2025-09-01', '2025-09-02'
+    ) AS t(date_column) -- Thêm hoặc chỉnh sửa ngày cần extend
+)
+
+/*Trong seller*/
+,SUM
+  (
+  CASE
+    WHEN ((HOUR(C.orderdate) >= 18 AND DATE(C.orderdate) = DATE(Date_SLA) AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '2' DAY)))
+      OR ((HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)))
+      OR ((HOUR(C.orderdate) < 18 AND DATE(C.orderdate) = DATE(Date_SLA) AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)))
+      OR (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+    THEN 1
+    ELSE 0
+  END
+  ) AS OntimeFirstPU
+  
+,SUM
+  (
+  CASE
+    WHEN ((HOUR(C.orderdate) >= 18 AND DATE(C.orderdate) = DATE(Date_SLA) AND DATE(COALESCE(DATE(C.endpicktime), CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '2' DAY)))
+      OR ((HOUR(C.orderdate) >= 18 AND DATE(COALESCE(DATE(C.endpicktime), CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)))
+      OR ((HOUR(C.orderdate) < 18 AND DATE(C.orderdate) = DATE(Date_SLA) AND DATE(COALESCE(DATE(C.endpicktime), CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)))
+      OR (HOUR(C.orderdate) < 18 AND DATE(COALESCE(DATE(C.endpicktime), CURRENT_DATE)) <= DATE(C.orderdate))
+    THEN 1
+    ELSE 0
+  END
+  ) AS OntimeSuccessPU
+
+/*Đặt ở điều kiện WHERE*/
+AND NOT (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+
+-------------------------------------------------------------------------------- Phân loại theo COT
+,CASE 
+  WHEN HOUR(C.orderdate) BETWEEN 12 AND 14 THEN '2. 12h-15h'
+  WHEN HOUR(C.orderdate) BETWEEN 15 AND 16 THEN '3. 15h-17h'
+  WHEN HOUR(C.orderdate) >= 17 THEN '4. Sau 17h'
+  ELSE '1. 0h-12h'
+END OrderTime
+
+-------------------------------------------------------------------------------- Phân loại theo ADO 
+,Case
+  WHEN ADO <= 2 THEN '1. 1-2 đơn'
+  WHEN ADO <= 5 THEN '2. 3-5 đơn'
+  WHEN ADO <= 10 THEN '3. 6-10 đơn'
+  WHEN ADO <= 20 THEN '4. 11-20 đơn'
+  WHEN ADO <= 50 THEN '5. 21-50 đơn'
+  WHEN ADO <= 100 THEN '6. 51-100 đơn'
+  ELSE '7. >100 đơn'
+END "Group"
+  
+-------------------------------------------------------------------------------- Phân theo KHL/Non-KHL
+,CASE
+  WHEN C.pickwarehouseid IN (1297,1327) THEN 'KHL'
+  ELSE 'Non-KHL'
+END "KHL/Non-KHL"
+
+-------------------------------------------------------------------------------- kết hợp table input
+JOIN "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+  ON C.clientcontactname = GS."ClientContactName"
+  
+-------------------------------------------------------------------------------- kết hợp table phường/xã
+JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+  ON C."FromWardCode" = W."ward_id"
+  
+-------------------------------------------------------------------------------- Data cũ
+FROM "dw-ghn".dtr_internal.Dtr_dwh_internal_v2_shippingorder_createddate_202503 AS ord
+
+-------------------------------------------------------------------------------- Tuần theo ngày chỉ định
+DATE_TRUNC('week',date(orderdate) + INTERVAL '1' DAY) - INTERVAL '1' DAY

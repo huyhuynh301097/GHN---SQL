@@ -1,65 +1,66 @@
 WITH Raw AS (
-  SELECT
-    CURRENT_DATE AS NgayPush
-    ,C.ordercode AS MaDH
-    ,CASE
-      WHEN C.isreturned THEN 'Trả'
-      ELSE 'Giao'
-    END AS GiaiDoan
-    ,CASE
-      WHEN C.fromprovince = C.toprovince AND C.isreturned = False THEN date_add('day', 10, DATE(C.endpicktime))
-      ELSE date_add('day', 15, DATE(C.endpicktime))
-    END AS Deadline
-    ,C.currentstatus AS TrangThai
-    ,DATE(C.endpicktime) AS ThoiGianKetThucLay 
-    ,C.numdeliver AS SoLanGiao
-    ,C.numreturn AS SoLanTra
-    ,C.clientid AS ID
-    ,C.pickwh AS KhoLay
-    ,C.deliverywh AS KhoGiao
-    ,C.returnwh AS KhoTra
-    ,C.currentwh AS KhoHienTai
-    ,C.fromregionshortname AS RegionLay
-    ,C.fromprovince AS ProvinceLay
-    ,C.fromdistrict AS DistrictLay
-    ,C.toregionshortname AS RegionGiao
-    ,C.toprovince AS ProvinceGiao
-    ,C.todistrict AS DistrictGiao
-    ,(LENGTH(allfailnote) - LENGTH(REPLACE(allfailnote, 'GHN-DFC1A6', ''))) /10 AS SoLanGiaoGapSuCo
-    ,(LENGTH(allfailnote) - LENGTH(REPLACE(allfailnote, 'GHN-RFE0A5', ''))) /10 AS SoLanTraGapSuCo 
-  FROM dtm_ka_v3_createddate AS C
-  LEFT JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
-    ON C."FromWardCode" = W."ward_id"
-  LEFT JOIN "dw-ghn"."datawarehouse"."dim_warehouse" AS D
-    ON C.currentwh = D.warehouse_name
-  WHERE C.clientid IN (18692, 2781603, 224845)
-    AND C.currentstatus NOT IN ('cancel','picking','ready_to_pick','delivered','returned','lost','scrap','damage')
-  GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21
-  )
-  SELECT
-    NgayPush
-    ,ID
-    ,MaDH
-    ,GiaiDoan
-    ,ThoiGianKetThucLay
-    ,Deadline
-    ,TrangThai
-    ,SoLanGiao
-    ,SoLanTra
-    ,KhoLay
-    ,KhoGiao
-    ,KhoTra
-    ,KhoHienTai
-    ,RegionLay
-    ,ProvinceLay
-    ,DistrictLay
-    ,RegionGiao
-    ,ProvinceGiao
-    ,DistrictGiao
-    ,CASE
-      WHEN KhoHienTai = KhoGiao AND GiaiDoan = 'Giao' THEN RegionGiao
-      WHEN KhoHienTai = KhoTra AND GiaiDoan = 'Trả' THEN RegionLay
-    END AS RegionHienTai
-  FROM Raw
-  WHERE Deadline = CURRENT_DATE + INTERVAL '2' Day
-    AND ((KhoHienTai = KhoGiao AND SoLanGiao - SoLanGiaoGapSuCo >= 0 AND GiaiDoan = 'Giao' ) OR (KhoHienTai = KhoTra AND SoLanTra - SoLanTraGapSuCo >= 0 AND GiaiDoan = 'Trả'))
+SELECT
+  CURRENT_DATE AS NgayPush
+  ,C.ordercode AS MaDH
+  ,CASE
+    WHEN C.isreturned THEN 'Trả'
+    ELSE 'Giao'
+  END AS GiaiDoan
+  ,CASE
+    WHEN C.fromprovince = C.toprovince AND C.isreturned = False THEN date_add('day', 10, DATE(C.endpicktime))
+    ELSE date_add('day', 15, DATE(C.endpicktime))
+  END AS Deadline
+  ,C.currentstatus AS TrangThai
+  ,DATE(C.endpicktime) AS ThoiGianKetThucLay 
+  ,C.numdeliver AS SoLanGiao
+  ,C.numreturn AS SoLanTra
+  ,C.clientid AS ID
+  ,C.pickwh AS KhoLay
+  ,C.deliverywh AS KhoGiao
+  ,C.returnwh AS KhoTra
+  ,C.currentwh AS KhoHienTai
+  ,C.fromregionshortname AS RegionLay
+  ,C.fromprovince AS ProvinceLay
+  ,C.fromdistrict AS DistrictLay
+  ,C.toregionshortname AS RegionGiao
+  ,C.toprovince AS ProvinceGiao
+  ,C.todistrict AS DistrictGiao
+  ,(LENGTH(allfailnote) - LENGTH(REPLACE(allfailnote, 'GHN-DFC1A6', ''))) /10 AS SoLanGiaoGapSuCo
+  ,(LENGTH(allfailnote) - LENGTH(REPLACE(allfailnote, 'GHN-RFE0A5', ''))) /10 AS SoLanTraGapSuCo 
+FROM dtm_ka_v3_createddate AS C
+LEFT JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+  ON C."FromWardCode" = W."ward_id"
+LEFT JOIN "dw-ghn"."datawarehouse"."dim_warehouse" AS D
+  ON C.currentwh = D.warehouse_name
+WHERE C.clientid IN (18692, 2781603, 224845)
+  AND C.currentstatus NOT IN ('cancel','picking','ready_to_pick','delivered','returned','lost','scrap','damage')
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21
+)
+SELECT
+  NgayPush
+  ,ID
+  ,MaDH
+  ,GiaiDoan
+  ,ThoiGianKetThucLay
+  ,Deadline
+  ,TrangThai
+  ,SoLanGiao
+  ,SoLanTra
+  ,KhoLay
+  ,KhoGiao
+  ,KhoTra
+  ,KhoHienTai
+  ,RegionLay
+  ,ProvinceLay
+  ,DistrictLay
+  ,RegionGiao
+  ,ProvinceGiao
+  ,DistrictGiao
+  ,CASE
+    WHEN KhoHienTai = KhoGiao AND GiaiDoan = 'Giao' THEN RegionGiao
+    WHEN KhoHienTai = KhoGiao AND GiaiDoan = 'Trả' THEN RegionGiao
+    WHEN KhoHienTai = KhoTra AND GiaiDoan = 'Trả' THEN RegionLay
+  END AS RegionHienTai
+FROM Raw
+WHERE Deadline = CURRENT_DATE + INTERVAL '2' Day
+  AND ((KhoHienTai = KhoGiao AND SoLanGiao - SoLanGiaoGapSuCo >= 0 AND GiaiDoan = 'Giao' ) OR (KhoHienTai = KhoTra AND SoLanTra - SoLanTraGapSuCo >= 0 AND GiaiDoan = 'Trả'))

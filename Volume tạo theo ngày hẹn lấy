@@ -1,0 +1,13 @@
+SELECT
+  CASE
+    WHEN clientid = 18692 THEN '1. SPE'
+    WHEN clientid = 2781603 THEN '2. SPX'
+    WHEN clientid = 9794 THEN '3. LZD'
+    WHEN clientid IN (2590595, 1367) THEN '4. Tiki'
+    WHEN clientid IN (224845) THEN '5. Reverse'
+  END AS "Sàn"
+  , COUNT(C.ordercode) AS Total_Volume
+FROM dtm_ka_v3_createddate AS C
+WHERE C.clientid IN (18692, 224845, 2781603, 9794, 2590595, 1367) AND DATE(C.orderdate) = CURRENT_DATE - INTERVAL '1' DAY
+GROUP BY 1
+ORDER BY 1

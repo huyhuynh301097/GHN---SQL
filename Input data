@@ -1,0 +1,11 @@
+-- Export data reverse cancel
+SELECT 
+  GS."OrderCode"
+  ,C.currentwh
+  ,C.currentstatus
+FROM "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+LEFT JOIN dtm_ka_v3_createddate C
+  ON GS."OrderCode" = C.ordercode
+LEFT JOIN dtm_ka_shopee S
+  ON GS."OrderCode" = S.ordercode
+WHERE GS."OrderCode" IS NOT NULL

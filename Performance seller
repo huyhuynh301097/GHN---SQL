@@ -1,0 +1,339 @@
+-- Sheet "Raw 31Day"
+WITH
+  Raw AS (
+    SELECT
+      W.region_shortname AS Region
+      ,W.province_name AS Province
+      ,W.district_name AS District
+      ,W.ward_name AS Ward
+      ,C.fromwardcode AS Ward_id
+      ,C.clientcontactname AS SellerName
+      ,DATE(C.orderdate) AS Time --Thay đổi Day/Week/Month
+      ,COUNT(C.ordercode) AS Vol_Created
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+          ELSE 0
+        END)
+      AS Vol_Ont_1st
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 0
+          ELSE 1
+        END)
+      AS Vol_Late_1st
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(C.endpicktime) <= DATE(C.orderdate)) 
+            OR (HOUR(C.orderdate) >= 18 AND COALESCE(DATE(C.endpicktime), CURRENT_DATE) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+          ELSE 0 
+        END)
+      AS Vol_Ont_success
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(C.endpicktime) <= DATE(C.orderdate)) 
+            OR (HOUR(C.orderdate) >= 18 AND COALESCE(DATE(C.endpicktime), CURRENT_DATE) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 0
+          ELSE 1
+        END)
+      AS Vol_Late_success
+      ,COUNT(C.ordercode) FILTER (WHERE C.endpicktime IS NOT NULL) AS Vol_Success
+      ,COUNT(C.ordercode) FILTER (WHERE C.currentstatus = 'cancel') AS Vol_Cancel
+      ,COUNT(C.ordercode) FILTER (WHERE C.currentstatus IN ('ready_to_pick','picking')) AS Vol_Pending
+    FROM dtm_ka_v3_createddate AS C
+    JOIN "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+      ON C.fromwardcode = GS."Ward_id" AND C.clientcontactname = GS."ClientContactName"
+    JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+      ON C.fromwardcode = W."ward_id"
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND NOT (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+      --AND DATE(C.orderdate) BETWEEN DATE(current_date - INTERVAL '61' DAY) AND DATE(current_date - INTERVAL '1' DAY) /* 31 ngày gần đây */
+      AND DATE(C.orderdate) BETWEEN date_trunc('month', current_date - interval '2' month) AND current_date - interval '1' day /* 3 tháng gần đây*/
+    GROUP BY 1,2,3,4,5,6,7
+  )
+  SELECT
+    Time
+    ,R.Region
+    ,R.Province
+    ,R.District
+    ,R.Ward
+    ,R.Ward_id
+    ,R.SellerName
+    ,R.Vol_Created
+    ,R.Vol_Success
+    ,R.Vol_Pending
+    ,R.Vol_Cancel
+    ,R.Vol_Ont_1st
+    ,R.Vol_Late_1st
+    ,R.Vol_Ont_Success
+    ,R.Vol_Late_Success
+  FROM Raw AS R
+  GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+  ORDER BY 1 DESC
+
+-- Sheet "In4 Seller"
+WITH
+  Volume_Table AS (
+    SELECT
+      COUNT(C.ordercode) AS Volume
+    FROM dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND MONTH(C.orderdate) = 5
+  )
+, Raw AS (
+    SELECT
+      W.region_shortname AS Region
+      ,W.province_name AS Province
+      ,W.district_name AS District
+      ,W.ward_name AS Ward
+      ,C.fromwardcode AS Ward_id
+      ,C.clientcontactname AS SellerName
+      ,C.pickwh AS Hub
+      ,C.ordercode AS OrderCode
+      ,C.weight AS weight
+      ,DATE(C.orderdate) AS OrderDate
+      ,(SELECT Volume FROM Volume_Table) AS TotalVolume
+      ,COUNT(C.ordercode) OVER (PARTITION BY C.fromwardcode, C.clientcontactname ) AS Volume_Created
+      ,CASE
+        WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+          OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+        ELSE 0
+      END AS OntimeFirstPU
+      ,CASE
+        WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+          OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 0
+        ELSE 1
+      END AS LateFirstPU
+      ,CASE
+        WHEN (HOUR(C.orderdate) < 18 AND DATE(C.endpicktime) <= DATE(C.orderdate)) 
+          OR (HOUR(C.orderdate) >= 18 AND COALESCE(DATE(C.endpicktime), CURRENT_DATE) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+        ELSE 0 
+      END AS OntimeSuccessPU
+      ,CASE
+        WHEN (HOUR(C.orderdate) < 18 AND DATE(C.endpicktime) <= DATE(C.orderdate)) 
+          OR (HOUR(C.orderdate) >= 18 AND COALESCE(DATE(C.endpicktime), CURRENT_DATE) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 0
+        ELSE 1
+      END AS LateSuccessPU
+      ,CASE
+        WHEN C.endpicktime IS NOT NULL THEN 1
+        ELSE 0
+      END AS PickupSuccess  
+    FROM dtm_ka_v3_createddate AS C
+    JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+      ON C.fromwardcode = W."ward_id"
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND MONTH(C.orderdate) = 5
+  )
+, Number_Day_Table AS (
+    SELECT
+      Ward_id
+      ,SellerName
+      ,AVG(Volume_Created) AS Volume_Created
+      ,COUNT(DISTINCT OrderDate) AS Number_Day
+    FROM Raw
+    GROUP BY 1,2
+)
+, Performance AS (
+    SELECT
+      A.Region
+      ,A.Province
+      ,A.District
+      ,A.Ward
+      ,A.Ward_id
+      ,A.SellerName
+      ,A.Volume_Created
+      ,Number_Day
+      ,ROUND((A.Volume_Created/N.Number_Day),2) AS ADO
+      ,ROUND((SUM(OntimeFirstPU)/AVG(A.Volume_Created)),4) AS "%Ontime1stPU"
+      ,SUM(LateFirstPU)/AVG(TotalVolume) AS "%1stContribute"
+      ,ROUND((SUM(OntimeSuccessPU)/AVG(A.Volume_Created)),4) AS "%OntimeSuccessPU"
+      ,SUM(LateSuccessPU)/AVG(TotalVolume) AS "%SuccessContribute"
+      ,ROUND((SUM(PickupSuccess)/AVG(A.Volume_Created)),4) AS "%PickupSuccess"
+    FROM Raw AS A
+    LEFT JOIN Number_Day_Table AS N
+      ON A.Ward_id = N.Ward_id AND A.SellerName = N.SellerName
+    GROUP BY 1,2,3,4,5,6,7,8,9
+  )
+, Rank_Table AS (
+    SELECT
+      Ward_id
+      ,SellerName
+      ,OrderCode
+      ,Hub
+      ,row_number() OVER (PARTITION BY Ward_id, SellerName ORDER BY OrderDate DESC) AS Rank_ordercode
+      ,SUM(weight) OVER (PARTITION BY Ward_id, SellerName) AS Weight_Total
+    FROM Raw
+  )
+  SELECT
+    P.Region
+    ,P.Province
+    ,P.District
+    ,P.Ward
+    ,P.Ward_id
+    ,P.SellerName
+    ,P.Volume_Created
+    ,P.Number_Day
+    ,P.ADO
+    ,ROUND((R.Weight_Total/P.Number_Day),1) AS Weight_Avg_Day
+    ,P."%Ontime1stPU"
+    ,P."%1stContribute"
+    ,P."%OntimeSuccessPU"
+    ,P."%SuccessContribute"
+    ,P."%PickupSuccess"
+    ,R.OrderCode
+    ,R.Hub
+  FROM Performance AS P
+  LEFT JOIN Rank_Table AS R
+    ON P.Ward_id = R.Ward_id AND P.SellerName = R.SellerName
+  WHERE Rank_ordercode = 1 AND P.ADO > 15 AND P."%Ontime1stPU" < 0.98
+  ORDER BY 7 DESC
+  LIMIT 150
+  
+-- Sheet "Raw đơn late"
+WITH
+  PickupData AS (
+    SELECT
+      C.fromwardcode AS Ward_id
+      ,C.clientcontactname AS SellerName
+      ,C.ordercode AS OrderCode
+      ,DATE(C.orderdate) AS Date
+      ,HOUR(C.orderdate) AS Hour
+      ,C.currentstatus AS Status
+      ,C.fromregionshortname AS Region
+      ,C.fromprovince AS Province
+      ,C.fromdistrict AS District
+      ,W.ward_name AS Ward
+      ,C.pickwh AS Hub
+      ,CASE
+        WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+          OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 0
+        ELSE 1
+      END AS LateFirstPU
+    FROM dtm_ka_v3_createddate AS C
+    JOIN "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+      ON C.clientcontactname = GS."ClientContactName"
+    JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+      ON C.fromwardcode = W."ward_id"
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND NOT (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+      AND (DATE(C.orderdate) >= current_date - INTERVAL '7' DAY AND DATE(C.orderdate) < current_date)
+  )
+  SELECT
+    Ward_id
+    ,SellerName
+    ,OrderCode
+    ,Date
+    ,Hour
+    ,Status
+    ,Region
+    ,Province
+    ,District
+    ,Ward
+    ,Hub
+  FROM PickupData
+  WHERE LateFirstPU = 1
+  
+-- Sheet "Raw đơn pending"
+SELECT
+  C.fromwardcode AS Ward_id
+  ,C.clientcontactname AS SellerName
+  ,C.ordercode AS OrderCode
+  ,DATE(C.orderdate) AS Date
+  ,HOUR(C.orderdate) AS Hour
+  ,C.currentstatus AS Status
+  ,C.fromregionshortname AS Region
+  ,C.fromprovince AS Province
+  ,C.fromdistrict AS District
+  ,W.ward_name AS Ward
+  ,C.pickwh AS Hub
+FROM dtm_ka_v3_createddate AS C
+JOIN "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+  ON C.clientcontactname = GS."ClientContactName"
+JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+  ON C.fromwardcode = W."ward_id"
+WHERE C.clientid IN (18692)
+  AND isexpecteddropoff = False
+  AND NOT C.channel = 'WH - Shopee'
+  AND (DATE(C.orderdate) >= current_date - INTERVAL '7' DAY AND DATE(C.orderdate) < current_date)
+  AND C.currentstatus IN ('ready_to_pick','picking')
+  
+--- view nhanh performance trên query 
+WITH
+  Raw AS (
+    SELECT
+      W.region_shortname AS Region
+      ,W.province_name AS Province
+      ,W.district_name AS District
+      ,W.ward_name AS Ward
+      ,C.fromwardcode AS Ward_id
+      ,C.clientcontactname AS SellerName
+      ,DATE(C.orderdate) AS Time --Thay đổi Day/Week/Month
+      ,COUNT(C.ordercode) AS Vol_Created
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+          ELSE 0
+        END)
+      AS Vol_Ont_1st
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 0
+          ELSE 1
+        END)
+      AS Vol_Late_1st
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(C.endpicktime) <= DATE(C.orderdate)) 
+            OR (HOUR(C.orderdate) >= 18 AND COALESCE(DATE(C.endpicktime), CURRENT_DATE) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+          ELSE 0 
+        END)
+      AS Vol_Ont_success
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(C.endpicktime) <= DATE(C.orderdate)) 
+            OR (HOUR(C.orderdate) >= 18 AND COALESCE(DATE(C.endpicktime), CURRENT_DATE) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 0
+          ELSE 1
+        END)
+      AS Vol_Late_success
+      ,COUNT(C.ordercode) FILTER (WHERE C.endpicktime IS NOT NULL) AS Vol_Success
+      ,COUNT(C.ordercode) FILTER (WHERE C.currentstatus = 'cancel') AS Vol_Cancel
+      ,COUNT(C.ordercode) FILTER (WHERE C.currentstatus IN ('ready_to_pick','picking')) AS Vol_Pending
+    FROM dtm_ka_v3_createddate AS C
+    JOIN "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+      ON C.fromwardcode = GS."Ward_id" AND C.clientcontactname = GS."ClientContactName"
+    JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+      ON C.fromwardcode = W."ward_id"
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND NOT (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+      AND DATE(C.orderdate) BETWEEN current_date - INTERVAL '7' DAY AND current_date - INTERVAL '1' DAY
+    GROUP BY 1,2,3,4,5,6,7
+  )
+  SELECT
+    Time
+    ,R.Region
+    ,R.Province
+    ,R.District
+    ,R.Ward
+    ,R.Ward_id
+    ,R.SellerName
+    ,R.Vol_Created
+    ,R.Vol_Pending
+    ,R.Vol_Cancel
+    ,format('%.2f%%',ROUND((AVG(R.Vol_Ont_1st)/AVG(R.Vol_Created))*100,4)) AS "%Vol_Ont_1st"
+    ,format('%.2f%%',ROUND((AVG(R.Vol_Ont_Success)/AVG(R.Vol_Created))*100,4)) AS "%Vol_Ont_Success"
+  FROM Raw AS R
+  GROUP BY 1,2,3,4,5,6,7,8,9,10
+  ORDER BY 7 DESC , 1 DESC

@@ -1,0 +1,82 @@
+SELECT
+  MONTH(C.orderdate) AS Time
+  ,CASE
+    WHEN C.fromprovince = 'Hà Nội' THEN '1. Hà Nội'
+    WHEN C.fromprovince = 'Hồ Chí Minh' THEN '2. Hồ Chí Minh'
+    ELSE '3. Các tỉnh/thành còn lại'
+  END AS check
+  ,CASE
+      WHEN GREATEST(C.weight,C.weightrdc) <= 5 THEN '1. <= 5kg'
+      WHEN GREATEST(C.weight,C.weightrdc) < 10 THEN '2. <= 10kg'
+      WHEN GREATEST(C.weight,C.weightrdc) <= 15 THEN '3. <= 15kg'
+      ELSE '4. > 15kg'
+  END AS "Nhóm KL"
+  ,COUNT(C.ordercode) AS Total_Volume
+  ,ROUND(
+     COUNT(C.ordercode)*1.0000000
+     / SUM(COUNT(C.ordercode)) OVER (PARTITION BY DATE(C.orderdate), 
+                                                    CASE
+                                                      WHEN C.fromprovince = 'Hà Nội' THEN '1. Hà Nội'
+                                                      WHEN C.fromprovince = 'Hồ Chí Minh' THEN '2. Hồ Chí Minh'
+                                                      ELSE '3. Các tỉnh/thành còn lại'
+                                                    END)
+   ,4) AS Volume_Pct
+FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate" C
+JOIN "ghn-reporting"."ka"."dtm_ka_shopee" AS S
+  ON C.ordercode = S.ordercode
+WHERE C.clientid = 18692
+  AND DATE(C.orderdate) BETWEEN DATE_TRUNC('MONTH', CURRENT_DATE - INTERVAL '1' MONTH) 
+                             AND CURRENT_DATE - INTERVAL '1' DAY
+  AND S.externallane = 'Intra City'
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3
+
+
+------------------------------------ Seller ------------------------------------
+WITH
+  total AS (
+    SELECT
+      DATE(C.orderdate) AS Time
+      ,COUNT(C.ordercode) AS Total_Volume
+    FROM dtm_ka_v3_createddate C
+    JOIN dtm_ka_shopee AS S
+      ON C.ordercode = S.ordercode
+    WHERE C.clientid = 18692
+      AND DATE(C.orderdate) BETWEEN DATE('2025-08-25') AND DATE('2025-09-04')
+      AND S.externallane = 'Intra City'
+    GROUP BY 1
+  )
+, details AS (
+    SELECT
+      C.ordercode AS OrderCode
+      ,DATE(C.orderdate) AS Time
+      ,C.fromwardcode AS Ward_id
+      ,C.clientcontactname AS Seller_name
+      ,ROW_NUMBER () OVER (PARTITION BY C.fromwardcode, C.clientcontactname, DATE(C.orderdate) ORDER BY DATE(C.orderdate) DESC) AS Rank_number
+      ,COUNT(C.ordercode) OVER (PARTITION BY C.fromwardcode, C.clientcontactname, DATE(C.orderdate)) AS Volume_Created
+    FROM dtm_ka_v3_createddate C
+    JOIN dtm_ka_shopee AS S
+      ON C.ordercode = S.ordercode
+    WHERE C.clientid = 18692
+      AND DATE(C.orderdate) BETWEEN DATE('2025-08-25') AND DATE('2025-09-04')
+      AND S.externallane = 'Intra City'
+  )
+SELECT
+    D.Time
+    ,W.region_shortname AS Region
+    ,W.province_name AS Province
+    ,W.district_name as District
+    ,W.ward_name AS Ward
+    ,D.Ward_id
+    ,D.Seller_name
+    ,D.Volume_Created
+    ,ROUND(SUM(D.Volume_Created) * 1.0000 / MAX(T.Total_Volume), 4) AS "%Volume"
+    ,D.OrderCode
+FROM details D
+JOIN total T
+  ON D.Time = T.Time
+JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+  ON D.ward_id = W."ward_id"
+WHERE Rank_number = 1
+GROUP BY 1,2,3,4,5,6,7,8,10
+

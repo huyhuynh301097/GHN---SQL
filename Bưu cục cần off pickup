@@ -1,0 +1,135 @@
+WITH
+  -- Bước 1: Lấy dữ liệu chi tiết theo ngày, phường, loại kho
+  Details AS (
+    SELECT
+      DATE(C.orderdate) AS Time
+      , fromwardcode AS Ward_id
+      , CASE
+          WHEN REGEXP_LIKE(LOWER(pickwh),'^(kho giao hàng nặng|key account warehouse)') THEN 'KHL'
+          ELSE 'Non-KHL'
+        END AS Check
+      , COUNT(C.ordercode) AS Volume_Created
+      , SUM(CASE
+          WHEN (firstfailpicknote = 'Nhân viên gặp sự cố' AND DATE(firstupdatedpickeduptime) != DATE(secondcreatedpickeduptime) AND DATE(firstupdatedpickeduptime) >= DATE(C.orderdate)) THEN 0
+          WHEN (HOUR(C.orderdate) < 18 
+                AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 
+                AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime)) <= DATE(C.orderdate + INTERVAL '1' DAY))
+          THEN 1
+          ELSE 0
+        END) AS OntimeFirstPU
+    FROM dtm_ka_v3_createddate C
+    WHERE C.clientid IN (18692)
+      AND C.isexpecteddropoff = FALSE
+      AND NOT C.channel = 'WH - Shopee'
+      AND DATE(C.orderdate) BETWEEN DATE('2025-08-11') AND DATE('2025-08-23')
+      AND C.fromregionshortname = 'HNO'
+    GROUP BY 1, 2, 3
+  ),
+  
+  -- Bước 2: Tính ontime rate theo ngày, phường, loại kho
+  Daily_Performance AS (
+    SELECT
+      Time
+      , Ward_id
+      , Check
+      , Volume_Created
+      , ROUND((AVG(OntimeFirstPU) / AVG(Volume_Created)), 4) AS Ontime_Rate
+    FROM Details
+    GROUP BY 1, 2, 3, 4
+  ),
+  
+  -- Bước 3: Tính ontime tổng theo ngày và phường (kết hợp KHL + Non-KHL)
+  Daily_Ward_Total AS (
+    SELECT
+      Time
+      , Ward_id
+      , SUM(Volume_Created) AS Total_Volume
+      , SUM(OntimeFirstPU) AS Total_Ontime
+      , ROUND((AVG(OntimeFirstPU) / AVG(Volume_Created)), 4) AS Total_Ontime_Rate
+    FROM Details
+    GROUP BY Time, Ward_id
+  ),
+  
+  -- Bước 4: Đếm số ngày có ontime < 0.9 cho mỗi phường
+  Ward_Bad_Days AS (
+    SELECT
+      Ward_id
+      , COUNT(*) AS Days_Below_90
+      , AVG(Total_Ontime_Rate) AS Avg_Ontime_Rate
+      , AVG(Total_Volume) AS Avg_Daily_Volume
+    FROM Daily_Ward_Total
+    WHERE Total_Ontime_Rate < 0.9
+    GROUP BY Ward_id
+  ),
+  
+  -- Bước 5: Tính % KHL volume cho mỗi phường
+  Ward_KHL_Percentage AS (
+    SELECT
+      Ward_id
+      , ROUND(
+          (AVG(CASE WHEN Check = 'KHL' THEN Volume_Created ELSE 0 END) / 
+           AVG(Volume_Created)) , 4
+        ) AS KHL_Percentage
+    FROM Details
+    GROUP BY Ward_id
+  ),
+  
+  -- Bước 6: Tính ontime rate trung bình cho KHL và Non-KHL mỗi phường
+  Ward_Performance_By_Type AS (
+    SELECT
+      Ward_id
+      , Check
+      , SUM(Volume_Created) AS Total_Volume_By_Type
+      , SUM(OntimeFirstPU) AS Total_Ontime_By_Type
+      , ROUND((AVG(OntimeFirstPU) / AVG(Volume_Created)), 4) AS Ontime_Rate_By_Type
+    FROM Details
+    GROUP BY Ward_id, Check
+  ),
+  
+  -- Bước 7: Xác định loại kho có ontime thấp hơn
+  Ward_Worse_Type AS (
+    SELECT
+      Ward_id
+      , CASE 
+          WHEN MAX(CASE WHEN Check = 'KHL' THEN Ontime_Rate_By_Type END) < 
+               MAX(CASE WHEN Check = 'Non-KHL' THEN Ontime_Rate_By_Type END) THEN 'KHL worse'
+          WHEN MAX(CASE WHEN Check = 'Non-KHL' THEN Ontime_Rate_By_Type END) < 
+               MAX(CASE WHEN Check = 'KHL' THEN Ontime_Rate_By_Type END) THEN 'Non-KHL worse'
+          ELSE 'Similar'
+        END AS Worse_Type
+    FROM Ward_Performance_By_Type
+    GROUP BY Ward_id
+  ),
+  
+  -- Bước 8: Tính ontime rate tổng cho mỗi phường (toàn bộ period)
+  Ward_Overall_Performance AS (
+    SELECT
+      Ward_id
+      , SUM(Volume_Created) AS Total_Volume
+      , SUM(OntimeFirstPU) AS Total_Ontime
+      , ROUND((AVG(OntimeFirstPU) / AVG(Volume_Created)), 4) AS Overall_Ontime_Rate
+      , AVG(Volume_Created) AS Avg_Daily_Volume
+    FROM Details
+    GROUP BY Ward_id
+  )
+
+-- Kết quả cuối cùng
+SELECT
+  wop.Ward_id
+  ,   wop.Overall_Ontime_Rate AS Avg_Ontime_1st
+  , COALESCE(wbd.Days_Below_90, 0) AS Days_Below_90_Percent
+  , ROUND(wop.Avg_Daily_Volume, 0) AS Avg_Daily_Volume
+  , COALESCE(wkp.KHL_Percentage, 0.00) AS KHL_Volume_Percentage
+  , CASE 
+      WHEN wwt.Worse_Type = 'KHL worse' THEN 'KHL'
+      WHEN wwt.Worse_Type = 'Non-KHL worse' THEN 'Non-KHL'
+      ELSE 'Similar'
+    END AS Performance_Issue_Type
+FROM Ward_Overall_Performance wop
+LEFT JOIN Ward_Bad_Days wbd ON wop.Ward_id = wbd.Ward_id
+LEFT JOIN Ward_KHL_Percentage wkp ON wop.Ward_id = wkp.Ward_id
+LEFT JOIN Ward_Worse_Type wwt ON wop.Ward_id = wwt.Ward_id
+WHERE COALESCE(wbd.Days_Below_90, 0) > 0  -- Chỉ hiển thị các phường có ngày ontime < 0.9
+ORDER BY COALESCE(wbd.Days_Below_90, 0) DESC, wop.Overall_Ontime_Rate ASC
+--LIMIT 20;  -- Top 20 phường có vấn đề nhiều nhất

@@ -1,0 +1,146 @@
+-- Check thông tin từ mã đơn đại diện
+SELECT
+  GS."OrderCode"
+  ,C.fromwardcode AS Ward_id
+  ,C.clientcontactname AS ClientContactName
+FROM "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+JOIN dtm_ka_v3_createddate AS C
+  ON GS."OrderCode" = C.ordercode
+WHERE GS."OrderCode" IS NOT NULL
+ORDER BY 1 DESC
+
+-- Theo dõi Volume Seller
+WITH
+  Raw AS (
+    SELECT
+      C.ordercode AS OrderCode
+      ,C.currentstatus AS CurrentStatus
+      ,date_trunc('month',DATE(C.orderdate)) AS Time
+      ,DATE(C.orderdate) AS OrderDate
+      ,C.clientcontactname AS SellerName
+      ,C.FromWardCode AS ward_id
+      ,C.pickwh AS Hub
+      ,C.weight AS weight
+      ,COUNT(C.ordercode) OVER (PARTITION BY MONTH(C.orderdate), C.FromWardCode, C.clientcontactname ) AS Volume_Created
+      ,CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+          ELSE 0
+        END AS OntimeFirstPU
+      ,row_number() OVER (PARTITION BY MONTH(C.orderdate), C.FromWardCode, C.clientcontactname ORDER BY DATE(C.orderdate) DESC) AS Rank_ordercode
+      ,SUM(weight) OVER (PARTITION BY MONTH(C.orderdate), C.FromWardCode, C.clientcontactname) AS Weight_Total
+    FROM dtm_ka_v3_createddate AS C
+    /*JOIN "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+      ON C.fromwardcode = GS.Ward_id AND C.clientcontactname = GS.ClientContactName*/
+    WHERE C.clientid IN (18692)
+      AND NOT C.channel = 'WH - Shopee'
+      AND C.isexpecteddropoff = False
+      AND MONTH(C.orderdate) IN (6)
+      AND C.clientcontactname IN ('Gối công thái học EMA Việt Nam')
+  )
+, Pivot AS (
+    SELECT
+      Time
+      ,ward_id
+      ,SellerName
+      ,COUNT(DISTINCT OrderDate) AS NgayPhatSinhDon
+      ,format('%.2f%%',ROUND((SUM(OntimeFirstPU)/avg(Volume_Created))*100,4)) AS "%Ontime_1st"
+      ,format('%.2f%%',ROUND((COUNT(OrderCode) FILTER (WHERE CurrentStatus NOT IN ('cancel','ready_to_pick'))/avg(Volume_Created))*100,4)) AS "%Vol_PU_Success"
+    FROM Raw
+    GROUP BY 1,2,3
+  )
+  SELECT
+    format_datetime(P.Time, 'MM/yyyy') AS month_year
+    ,P.ward_id
+    ,P.SellerName
+    ,Volume_Created
+    ,NgayPhatSinhDon
+    ,Volume_Created/NgayPhatSinhDon AS DonTrungBinhNgay
+    ,ROUND((R.Weight_Total/NgayPhatSinhDon),1) AS KhoiLuongTrungBinhNgay
+    ,"%Ontime_1st"
+    ,"%Vol_PU_Success"
+    ,R.OrderCode
+    ,R.Hub
+    ,W.region_shortname AS Region
+    ,W.province_name AS Province
+    ,W.district_name as District
+    ,W.ward_name AS Ward
+  FROM Pivot AS P
+  JOIN Raw AS R
+    ON P.ward_id = R.ward_id AND P.SellerName = R.SellerName AND P.Time =R.Time
+  JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+    ON P.ward_id = W."ward_id"
+  WHERE Rank_ordercode = 1
+  ORDER BY 4 ASC, 2 DESC
+
+-- Data raw đơn pending Seller
+SELECT
+  C.ordercode AS OrderCode
+  ,C.currentstatus AS Status
+  ,DATE(C.orderdate) AS Date_Order
+  ,Hour(C.orderdate) AS Hour_Order
+  ,C.clientcontactname AS Seller_Name
+  ,C.clientid AS ID
+  ,C.pickwh AS Hub
+  ,W.region_shortname AS Region
+  ,W.province_name AS Province
+  ,W.district_name AS District
+  ,W.ward_name AS Ward
+  ,C.fromwardcode AS Ward_id
+FROM dtm_ka_v3_createddate AS C
+LEFT JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+  ON C."FromWardCode" = W."ward_id"
+WHERE C.clientid IN (18692,3892833)
+  AND C.isexpecteddropoff = False
+  AND NOT C.channel = 'WH - Shopee'
+  AND C.currentstatus IN ('ready_to_pick','picking')
+  AND C.clientcontactname IN ('Gumivn')
+
+-- Pivot đơn pending seller
+WITH
+  Raw AS (
+    SELECT
+      C.ordercode AS OrderCode
+      ,DATE(C.orderdate) AS Date
+      ,C.fromwardcode AS Ward_id
+      ,C.clientcontactname AS SellerName
+      ,C.clientID AS ID
+      ,ROW_NUMBER() OVER (PARTITION BY DATE(C.orderdate), C.fromwardcode, C.clientcontactname, C.clientID) AS Sample
+      ,C.pickwh AS Hub
+    FROM dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692,3892833)
+      AND C.isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND C.currentstatus IN ('ready_to_pick','picking')
+      AND C.clientcontactname IN ('KAMITO OFFICIAL STORE')
+  )
+, Detail AS (
+    SELECT
+      Date
+      ,Ward_id
+      ,SellerName
+      ,ID
+      ,COUNT(R.OrderCode) AS VolumeCreated
+      ,COUNT(R.OrderCode) FILTER (WHERE Ord.currentstatus IN ('ready_to_pick', 'picking')) AS VolumePending
+      ,COUNT(R.OrderCode) FILTER (WHERE Ord.currentstatus IN ('cancel')) AS VolumeCancel
+    FROM Raw AS R
+    LEFT JOIN "dw-ghn".dtr_internal.Dtr_dwh_internal_v2_shippingorder_createddate_202506 AS Ord
+      ON R.OrderCode = Ord.ordercode
+    GROUP BY 1,2,3,4
+  )
+  SELECT
+    D.*
+    ,R.OrderCode
+    ,R.Hub
+    ,W.region_shortname AS Region
+    ,W.province_name AS Province
+    ,W.district_name AS District
+    ,W.ward_name AS Ward
+  FROM Detail AS D
+  JOIN Raw AS R
+    ON D.Date = R.Date AND D.Ward_id = R.Ward_id AND D.SellerName = R.SellerName AND D.ID = R.ID
+  LEFT JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+    ON D.Ward_id = W."ward_id"
+  WHERE R.Sample = 1
+  ORDER BY 1 DESC
+  

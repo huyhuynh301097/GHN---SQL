@@ -1,0 +1,97 @@
+WITH
+  Total_Table AS -- Tính tổng volume tạo của từng tháng
+  (
+    SELECT
+      date_trunc('month', C.orderdate) AS Time
+      ,COUNT(C.ordercode) AS Vol_Created
+      ,COUNT(C.ordercode) FILTER (WHERE C.channel = 'WH - Shopee') AS Vol_WareHouse
+      ,COUNT(C.ordercode) FILTER (WHERE C.isexpecteddropoff = True) AS Vol_Dropoff
+      ,COUNT(C.orderdate) FILTER (WHERE C.currentstatus NOT IN ('cancel')) AS Vol_Success
+      ,COUNT(C.orderdate) FILTER (WHERE C.currentstatus IN ('ready_to_pick', 'picking')) AS Vol_Pending
+      ,COUNT(C.orderdate) FILTER (WHERE C.currentstatus IN ('cancel')) AS Vol_Cancel
+    FROM dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND DATE(C.orderdate) >= date_trunc('month', current_date) - INTERVAL '3' MONTH
+    GROUP BY 1
+  )
+, event_days AS -- Liệt kê các ngày event double hoặc ngày nghỉ lễ
+  (
+    SELECT
+      CAST(date_column AS DATE) AS Date_SLA
+    FROM 
+      (VALUES 
+    -- Double days
+      '2024-10-10', '2024-10-11', '2024-10-12', '2024-11-11', '2024-11-12', '2024-11-13', '2024-12-12', '2024-12-13', '2024-12-14',
+      '2025-01-15', '2025-01-16', '2025-01-17', '2025-02-02', '2025-02-03', '2025-02-04', '2025-03-03', '2025-03-04', '2025-03-05',
+      '2025-04-04', '2025-04-05', '2025-04-06', '2025-05-05', '2025-05-06', '2025-05-07', '2025-06-06', '2025-06-07', '2025-06-08',
+      '2025-07-07', '2025-07-08', '2025-07-09', '2025-08-08', '2025-08-09', '2025-08-10', '2025-09-09', '2025-09-10', '2025-09-11',
+      '2025-10-10', '2025-10-11', '2025-10-12', '2025-11-11', '2025-11-12', '2025-11-13', '2025-12-12', '2025-12-13', '2025-12-14',
+      
+    -- Holidays
+      '2025-01-01', '2025-01-25', '2025-01-26', '2025-01-27', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-01',
+      '2025-02-02', '2025-04-07', '2025-04-30', '2025-05-01', '2025-09-01', '2025-09-02'
+      ) AS t(date_column)
+  )
+, Penalty AS -- Tính các chỉ số perf 
+  (
+    SELECT
+      date_trunc('month', C.orderdate) AS Time --thay đổi sang Week/Month
+      ,COUNT(C.ordercode) AS Vol_penalty
+      ,SUM(CASE
+            WHEN (firstfailpicknote = 'Nhân viên gặp sự cố' AND DATE(firstupdatedpickeduptime) != DATE(secondcreatedpickeduptime)) THEN 0
+            WHEN ((HOUR(C.orderdate) >= 18 AND DATE(C.orderdate) = DATE(Date_SLA) AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '2' DAY)))
+              OR ((HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)))
+              OR ((HOUR(C.orderdate) < 18 AND DATE(C.orderdate) = DATE(Date_SLA) AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)))
+              OR (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            THEN 1
+            ELSE 0
+          END) AS Vol_Ontime_1st_penalty
+    FROM dtm_ka_v3_createddate C
+    LEFT JOIN event_days AS E
+      ON DATE(C.orderdate) = DATE(Date_SLA)
+    WHERE C.clientid IN (18692)
+      AND C.isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND NOT (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+      AND DATE(C.orderdate) >= date_trunc('month', current_date) - INTERVAL '3' MONTH
+    GROUP BY 1
+  )
+, No_Penalty AS 
+  (
+    SELECT
+      date_trunc('month', C.orderdate) AS Time --thay đổi sang Week/Month
+      ,COUNT(C.ordercode) AS Vol_no_penalty
+      ,SUM(CASE
+        WHEN (firstfailpicknote = 'Nhân viên gặp sự cố' AND DATE(firstupdatedpickeduptime) != DATE(secondcreatedpickeduptime)) THEN 0
+        WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+          OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+        ELSE 0
+      END) AS Vol_Ontime_1st_no_penalty
+    FROM dtm_ka_v3_createddate C
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND DATE(C.orderdate) >= date_trunc('month', current_date) - INTERVAL '3' MONTH
+    GROUP BY 1
+  )
+  SELECT
+    format_datetime(P.Time,'MM/yyyy') AS Time
+    ,Vol_Created
+    ,format('%.2f%%',(AVG(Vol_WareHouse)/AVG(Vol_Created)) *100) AS "%Vol_WareHouse"
+    ,format('%.2f%%',(AVG(Vol_Dropoff)/AVG(Vol_Created)) *100) AS "%Vol_Dropoff"
+    ,format('%.2f%%',(AVG(Vol_Success)/AVG(Vol_Created)) *100) AS "%Vol_Success"
+    ,format('%.2f%%',(AVG(Vol_Pending)/AVG(Vol_Created)) *100) AS "%Vol_Pending"
+    ,format('%.2f%%',(AVG(Vol_Cancel)/AVG(Vol_Created)) *100) AS "%Vol_Cancel"
+    ,Vol_penalty
+    ,format('%.2f%%',(AVG(Vol_penalty)/AVG(Vol_Created)) *100) AS "%Vol_penalty"
+    ,format('%.2f%%',(AVG(Vol_Ontime_1st_penalty)/AVG(Vol_penalty)) *100) AS "%Ontime_1st_penalty"
+    ,Vol_no_penalty
+    ,format('%.2f%%',(AVG(Vol_no_penalty)/AVG(Vol_Created)) *100) AS "%Vol_no_penalty"
+    ,format('%.2f%%',(AVG(Vol_Ontime_1st_no_penalty)/AVG(Vol_no_penalty)) *100) AS "%Ontime_1st_no_penalty"
+  FROM Penalty AS P
+  JOIN Total_Table AS T
+    ON P.Time = T.Time
+  JOIN No_Penalty AS N
+    ON P.Time = N.Time
+  GROUP BY 1,2,8,11
+  ORDER BY 1 DESC

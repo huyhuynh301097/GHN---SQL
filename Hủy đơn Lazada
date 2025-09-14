@@ -1,0 +1,13 @@
+SELECT 
+  C.ordercode AS Order_code
+  , C.clientid AS ID
+  , C.clientcontactname AS Seller_name
+  , DATE(C.orderdate) AS Order_date
+  , C.currentstatus AS current_status
+  , coalesce(C.numpick,0) AS Num_pick
+  , C.actualpicktype AS Type_pick
+FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate" AS C
+WHERE C.clientid = 9794
+  AND C.currentstatus IN ('ready_to_pick','picking')
+  AND date_diff('day', DATE(C.orderdate), current_date) >= 5
+  AND C.numpick >= 3

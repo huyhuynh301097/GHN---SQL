@@ -1,0 +1,148 @@
+WITH
+  Nationwide AS (
+    SELECT
+      DATE(C.orderdate) AS Time --thay đổi sang Week/Month
+      ,COUNT(C.ordercode) AS Total_Volume
+    FROM "ghn-reporting"."ka".dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND C.isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND DATE(C.orderdate) = CURRENT_DATE - INTERVAL '1' Day
+    GROUP BY 1
+  )
+, Region AS (
+    SELECT
+      DATE(C.orderdate) AS Time --thay đổi sang Week/Month
+      ,C.fromregionshortname AS Region
+      ,COUNT(C.ordercode) AS Total_Volume
+    FROM "ghn-reporting"."ka".dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND C.isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND DATE(C.orderdate) = CURRENT_DATE - INTERVAL '1' Day
+    GROUP BY 1,2
+  )
+, Details AS (
+    SELECT
+      DATE(C.orderdate) AS Time --thay đổi sang Week/Month
+      ,C.fromregionshortname AS Region
+      ,C.pickwh AS Hub
+      ,COUNT(C.ordercode) AS Vol_Created
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) 
+            OR (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+          THEN 1
+          ELSE 0
+        END)
+      AS Vol_Ont_1st
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) 
+            OR (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+          THEN 0
+          ELSE 1
+        END)
+      AS Vol_Late_1st
+    FROM "ghn-reporting"."ka".dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND C.isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND DATE(C.orderdate) = CURRENT_DATE - INTERVAL '1' Day
+    GROUP BY 1,2,3
+  )
+, Calculated AS (
+    SELECT
+      D.Time
+      ,D.Region
+      ,D.Hub
+      ,Vol_Created
+      ,Vol_Ont_1st
+      ,Vol_Late_1st
+      ,ROUND((AVG(Vol_Ont_1st)/AVG(Vol_Created)),4) AS "%Ont_1st"
+      ,AVG(Vol_Late_1st)/AVG(R.Total_Volume) AS "%Contribute_Region"
+      ,AVG(Vol_Late_1st)/AVG(N.Total_Volume) AS "%Contribute_Nationwide"
+    FROM Details AS D
+    JOIN Nationwide AS N
+      ON D.Time = N.Time
+    JOIN Region AS R
+      ON D.Time = R.Time
+    GROUP BY 1,2,3,4,5,6
+  )
+, Rank_Table AS (
+    SELECT
+      *
+      ,ROW_NUMBER () OVER (PARTITION BY Region ORDER BY "%Contribute_Nationwide" DESC) AS "Rank"
+    FROM Calculated
+    WHERE 1 = 1
+      AND NOT Hub IN ('Key Account Warehouse Ha Noi','Key Account Warehouse Ho Chi Minh')
+      AND NOT Hub LIKE ('%Kho Giao Hàng Nặng%')
+  )
+, Final_Table AS (
+    SELECT
+      Time
+      ,Region
+      ,Hub
+      ,Vol_Created
+      ,Vol_Ont_1st
+      ,Vol_Late_1st
+      ,"%Ont_1st"
+      ,"%Contribute_Region"
+      ,"%Contribute_Nationwide"
+    FROM Rank_Table
+    WHERE "Rank" <= 10
+    ORDER BY 2,9 ASC
+  )
+, Total_Region AS (
+    SELECT
+      DATE(C.orderdate) AS Time --thay đổi sang Week/Month
+      ,C.fromregionshortname AS Region
+      ,CAST('ALL' AS VARCHAR) AS Hub
+      ,COUNT(C.ordercode) AS Vol_Created
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) 
+            OR (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+          THEN 1
+          ELSE 0
+        END)
+      AS Vol_Ont_1st
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) 
+            OR (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+          THEN 0
+          ELSE 1
+        END)
+      AS Vol_Late_1st
+    FROM "ghn-reporting"."ka".dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND C.isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND DATE(C.orderdate) = CURRENT_DATE - INTERVAL '1' Day
+    GROUP BY 1,2
+  )
+  SELECT
+    T.Time
+    ,T.Region
+    ,T.Hub
+    ,Vol_Created
+    ,Vol_Ont_1st
+    ,Vol_Late_1st
+    ,ROUND((AVG(Vol_Ont_1st)/AVG(Vol_Created)),4) AS "%Ont_1st"
+    ,AVG(Vol_Late_1st)/AVG(R.Total_Volume) AS "%Contribute_Region"
+    ,AVG(Vol_Late_1st)/AVG(N.Total_Volume) AS "%Contribute_Nationwide"
+  FROM Total_Region AS T
+  JOIN Nationwide AS N
+    ON T.Time = N.Time
+  JOIN Region AS R
+    ON T.Time = R.Time
+  GROUP BY 1,2,3,4,5,6
+  UNION
+  SELECT
+    *
+  FROM Final_Table

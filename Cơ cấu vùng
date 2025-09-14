@@ -1,0 +1,43 @@
+------------------------- Cơ cấu GĐV, AM -------------------------
+SELECT
+  warehouse_name AS Warehouse
+  , province_name AS Province
+  , region_shortname AS Region
+  , CONCAT(CAST(area_manager_id AS VARCHAR), ' - ', area_manager_name) AS AM
+  , CONCAT(CAST(gdv_id AS VARCHAR), ' - ', gdv_name) AS GDV
+FROM "dw-ghn".datawarehouse.dim_warehouse
+WHERE
+  is_enabled
+  AND gdv_name IS NOT NULL
+  AND REGEXP_LIKE(LOWER(warehouse_name), '^bưu cục')
+ORDER BY 5, 4, 3, 2
+
+
+------------------------- ID Vùng (phường/xã , quận/huyện, tỉnh/thành) -------------------------
+SELECT
+  ward_id
+  ,ward_name
+  ,district_id
+  ,district_name
+  ,province_id
+  ,province_name
+  ,region_id
+  ,region_fullname
+  ,region_shortname
+FROM "dw-ghn".datawarehouse.dim_location_ward 
+
+------------------------- ID Bưu cục -------------------------
+SELECT
+  region_shortname
+  ,province_name
+  ,district_name
+  ,ward_name
+  ,warehouse_name
+  ,warehouse_id
+FROM "dw-ghn".datawarehouse.dim_warehouse
+WHERE 1 = 1
+  AND LOWER(warehouse_name) LIKE ('kho giao hàng%')
+  OR LOWER(warehouse_name) LIKE ('bưu cục%')
+  OR LOWER(warehouse_name) LIKE ('kho trung chuyển%')
+  OR LOWER(warehouse_name) LIKE ('điểm xử lý hàng%')
+  OR LOWER(warehouse_name) LIKE ('key account%')

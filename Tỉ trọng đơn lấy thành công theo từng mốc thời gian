@@ -1,0 +1,43 @@
+WITH
+  Raw AS (
+    SELECT
+      C.ordercode
+      ,C.orderdate
+      ,C.createddate
+      ,C.endpicktime
+      ,HOUR(C.createddate) AS Hour_Created_Date
+      ,HOUR(C.orderdate) AS Hour_Order_Date
+      ,HOUR(C.endpicktime) AS Hour_Pick_Success
+      ,HOUR(C.firstupdatedpickeduptime) AS Hour_Pick_1st
+      ,COUNT(C.ordercode) OVER () AS Vol_Total
+    FROM dtm_ka_v3_createddate AS C
+    WHERE clientid = 18692
+      AND NOT C.channel = 'WH - Shopee'
+      AND isexpecteddropoff = False
+      AND NOT C.currentstatus = 'cancel'
+      AND DATE(C.orderdate) >= date_trunc('month', current_date - interval '1' month)
+      AND DATE(C.orderdate) < date_trunc('month', current_date)
+  )
+SELECT
+  Hour_Order_Date
+  ,COUNT(OrderCode) AS Vol_Created
+  ,FORMAT('%.2f%%',(COUNT(OrderCode) / AVG(Vol_Total)) *100 ) AS "%Vol_Created"
+  
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 0 AND 8 AND DATE(endpicktime) = DATE(orderdate)) AS DOUBLE) / COUNT(*) * 100)) AS "D0_0h-9h"
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 9 AND 11 AND DATE(endpicktime) = DATE(orderdate)) AS DOUBLE) / COUNT(*) * 100)) AS "D0_9h-12h"
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 12 AND 14 AND DATE(endpicktime) = DATE(orderdate)) AS DOUBLE) / COUNT(*) * 100)) AS "D0_12h-15h"
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 15 AND 17 AND DATE(endpicktime) = DATE(orderdate)) AS DOUBLE) / COUNT(*) * 100)) AS "D0_15h-18h"
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 18 AND 20 AND DATE(endpicktime) = DATE(orderdate)) AS DOUBLE) / COUNT(*) * 100)) AS "D0_18h-21h"
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 21 AND 23 AND DATE(endpicktime) = DATE(orderdate)) AS DOUBLE) / COUNT(*) * 100)) AS "D0_21h-24h"
+
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 0 AND 8 AND DATE(endpicktime) = DATE_ADD('day', 1, DATE(orderdate))) AS DOUBLE) / COUNT(*) * 100)) AS "D1_0h-9h"
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 9 AND 11 AND DATE(endpicktime) = DATE_ADD('day', 1, DATE(orderdate))) AS DOUBLE) / COUNT(*) * 100)) AS "D1_9h-12h"
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 12 AND 14 AND DATE(endpicktime) = DATE_ADD('day', 1, DATE(orderdate))) AS DOUBLE) / COUNT(*) * 100)) AS "D1_12h-15h"
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 15 AND 17 AND DATE(endpicktime) = DATE_ADD('day', 1, DATE(orderdate))) AS DOUBLE) / COUNT(*) * 100)) AS "D1_15h-18h"
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 18 AND 20 AND DATE(endpicktime) = DATE_ADD('day', 1, DATE(orderdate))) AS DOUBLE) / COUNT(*) * 100)) AS "D1_18h-21h"
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(Hour_Pick_Success BETWEEN 21 AND 23 AND DATE(endpicktime) = DATE_ADD('day', 1, DATE(orderdate))) AS DOUBLE) / COUNT(*) * 100)) AS "D1_21h-24h"
+  
+  ,FORMAT('%.2f%%',(CAST(COUNT_IF(DATE(endpicktime) > DATE_ADD('day', 1, DATE(orderdate))) AS DOUBLE) / COUNT(*) * 100)) AS ">= D2"
+FROM Raw
+GROUP BY 1
+ORDER BY Hour_Order_Date ASC

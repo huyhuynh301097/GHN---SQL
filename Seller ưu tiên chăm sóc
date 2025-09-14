@@ -1,0 +1,88 @@
+WITH
+  Total_Table AS (
+    SELECT
+      MONTH(C.orderdate) AS Time
+      ,COUNT(C.ordercode) AS Total_Volume
+    FROM dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND MONTH(C.orderdate) = 5
+    GROUP BY 1
+  )
+, Raw AS (
+    SELECT
+      MONTH(C.orderdate) AS Time
+      ,C.fromwardcode AS Ward_ID
+      ,C.clientcontactname AS Seller_Name
+      ,COUNT(C.ordercode) AS Vol_Created
+      ,COUNT(DISTINCT DATE(C.orderdate)) AS Frequency
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 1
+          ELSE 0
+        END)
+      AS Vol_Ont_1st
+      ,SUM
+        (CASE
+          WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate))
+            OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime, CURRENT_DATE)) <= DATE(C.orderdate + INTERVAL '1' DAY)) THEN 0
+          ELSE 1
+        END)
+      AS Vol_Late_1st
+      ,COUNT(C.ordercode) FILTER (WHERE C.endpicktime IS NOT NULL) AS Vol_Success
+    FROM dtm_ka_v3_createddate AS C
+    JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+      ON C.fromwardcode = W."ward_id"
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND MONTH(C.orderdate) = 5
+      --AND C.fromregionshortname IN ('HCM','HNO')
+    GROUP BY 1,2,3
+  )
+, Calculated AS (
+    SELECT
+      R.Time
+      ,R.Ward_ID
+      ,R.Seller_Name
+      ,R.Vol_Created
+      ,R.Frequency
+      ,ROUND((AVG(R.Vol_Created)/AVG(Frequency)),0) AS ADO
+      ,ROUND((AVG(R.Vol_Ont_1st)/AVG(R.Vol_Created)),4) AS "%Ontime 1st"
+      ,AVG(R.Vol_Late_1st)/AVG(T.Total_Volume) AS "%Contribute Late"
+      ,ROUND((AVG(R.Vol_Success)/AVG(R.Vol_Created)),4) AS "%Vol_Success"
+      ,ROUND((R.Vol_Created*(0.98 - (AVG(R.Vol_Ont_1st)/AVG(R.Vol_Created)))),1) AS Impact_Score
+    FROM Raw AS R
+    JOIN Total_Table AS T
+      ON R.Time = T.Time
+    GROUP BY 1,2,3,4,5
+  )
+  SELECT
+    Time
+    ,W.region_shortname AS Region
+    ,W.province_name AS Province
+    ,W.district_name as District
+    ,W.ward_name AS Ward
+    ,C.Ward_ID
+    ,Seller_Name
+    ,Vol_Created
+    ,Frequency
+    ,ADO
+    ,"%Ontime 1st"
+    ,"%Contribute Late"
+    ,"%Vol_Success"
+    ,Impact_Score
+    ,CASE
+      WHEN Impact_Score >= 50 THEN 'Ưu tiên cải thiện'
+      WHEN Impact_Score < 50 THEN 'Duy trì hiệu suất'
+    END AS "Nhóm"
+  FROM Calculated AS C
+  JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+    ON C.Ward_ID = W."ward_id"
+  WHERE
+    Impact_Score >= 50 AND ADO >= 40 --Lấy nhóm ưu tiên cải thiện--
+    --Impact_Score < 50 AND ADO >= 40 --Lấy nhóm duy trì hiệu suất--
+  ORDER BY 5 DESC ,4 DESC
+  

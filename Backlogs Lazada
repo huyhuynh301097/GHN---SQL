@@ -1,0 +1,36 @@
+WITH
+  Raw AS (
+    SELECT
+      C.ordercode AS Order_Code
+      ,DATE(C.orderdate) AS Order_Date
+      ,DATE(C.endpicktime) AS End_Pick_Time
+      ,C.currentstatus AS Status
+      ,C.numpick AS Num_Pick
+      ,C.numdeliver AS Num_Deli
+      ,C.numreturn AS Num_Return
+      ,C.pickwh AS Hub_Pick
+      ,C.deliverywh AS Hub_Deli
+      ,C.returnwh AS Hub_Return
+      ,C.currentwh AS Hub_Current
+      ,C.fromregionshortname AS Region_Pick
+      ,C.fromprovince AS Province_Pick
+      ,C.fromdistrict AS District_Pick
+      ,W.ward_name AS Ward_Pick
+      ,C.toregionshortname AS Region_Deli
+      ,C.toprovince AS Province_Deli
+      ,C.todistrict AS District_Deli
+    FROM dtm_ka_v3_createddate AS C
+    JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+      ON C.fromwardcode = W."ward_id"
+    WHERE C.clientid = 9794
+      AND NOT C.currentstatus IN ('delivered','cancel','returned','lost','scrap')
+    ORDER BY 2 DESC
+  )
+  SELECT
+    *
+  FROM Raw
+  WHERE Status NOT IN ('ready_to_pick','picking')
+    AND (Province_Deli IN ('Hưng Yên') OR (Province_Pick IN ('Hưng Yên') AND Hub_Current = Hub_Pick))
+    
+    
+    

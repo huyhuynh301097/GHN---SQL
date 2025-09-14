@@ -1,0 +1,64 @@
+---------------------------------------- Lũy kế nhiều tháng -----------------------------------------------
+WITH
+  raw_data AS (
+    SELECT
+      DATE(orderdate) AS order_date
+      ,EXTRACT(DAY FROM orderdate) AS day_in_month
+      ,FORMAT_DATETIME(orderdate, 'yyyy-MM') AS month_year
+      ,COUNT(*) AS volume
+    FROM dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND C.isexpecteddropoff = False
+      AND NOT C.channel = 'WH - Shopee'
+      AND C.pickwarehouseid IN (1327,1297)
+      AND DATE(C.orderdate) BETWEEN DATE('2025-03-01') AND DATE('2025-05-14')
+    GROUP BY 1,2,3
+  )
+, cumulative AS (
+    SELECT
+      day_in_month
+      ,month_year
+      ,SUM(volume) OVER (
+        PARTITION BY month_year
+        ORDER BY day_in_month
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS cumulative_volume
+      ,SUM(volume) OVER (PARTITION BY month_year) AS total_volume
+    FROM raw_data
+  )
+SELECT
+  day_in_month
+  ,MAX(CASE WHEN month_year = '2025-03' THEN ROUND(100.0 * cumulative_volume / total_volume, 2) END) AS "2025-03"
+  ,MAX(CASE WHEN month_year = '2025-04' THEN ROUND(100.0 * cumulative_volume / total_volume, 2) END) AS "2025-04"
+  ,MAX(CASE WHEN month_year = '2025-05' THEN ROUND(100.0 * cumulative_volume / total_volume, 2) END) AS "2025-05"
+FROM cumulative
+GROUP BY day_in_month
+ORDER BY day_in_month
+
+---------------------------------------- Lũy kế một tháng -----------------------------------------------
+WITH Raw AS (
+  SELECT
+    DATE(orderdate) AS order_date
+    ,COUNT(*) AS orders_per_day
+  FROM dtm_ka_v3_createddate AS C
+  WHERE C.clientid IN (18692)
+    AND C.isexpecteddropoff = False
+    AND NOT C.channel = 'WH - Shopee'
+    AND C.pickwarehouseid IN (1327,1297)
+    AND DATE(C.orderdate) BETWEEN DATE('2025-04-01') AND DATE('2025-04-30')
+  GROUP BY 1
+)
+, Base AS (
+  SELECT
+    *
+    ,SUM(orders_per_day) OVER () AS total_orders
+    ,SUM(orders_per_day) OVER (ORDER BY order_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_orders
+  FROM Raw
+)
+SELECT
+  order_date
+  ,orders_per_day
+  ,cumulative_orders
+  ,ROUND(100.0 * cumulative_orders / total_orders, 2) AS cumulative_percent
+FROM Base
+ORDER BY order_date;

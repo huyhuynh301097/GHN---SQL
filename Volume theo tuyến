@@ -1,0 +1,67 @@
+---------------------Theo tháng---------------------
+WITH
+  total AS (
+    SELECT
+      format_datetime(C.orderdate, 'MM/yyyy') AS Time
+      ,COUNT(DISTINCT C.ordercode) AS Total_Volume
+    FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate" C
+    WHERE C.clientid IN (18692)
+      AND DATE(C.orderdate) BETWEEN DATE_TRUNC('MONTH',CURRENT_DATE - INTERVAL '2' MONTH) AND CURRENT_DATE - INTERVAL '1' DAY
+    GROUP BY 1
+  )
+, details AS (
+    SELECT
+      format_datetime(C.orderdate, 'MM/yyyy') AS Time
+      ,S.externallane AS Lane
+      ,COUNT(DISTINCT C.ordercode) AS Volume_Created
+    FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate" C
+    JOIN "ghn-reporting"."ka"."dtm_ka_shopee" AS S
+      ON C.ordercode = S.ordercode
+    WHERE C.clientid IN (18692)
+      AND DATE(C.orderdate) BETWEEN DATE_TRUNC('MONTH',CURRENT_DATE - INTERVAL '2' MONTH) AND CURRENT_DATE - INTERVAL '1' DAY
+    GROUP BY 1,2
+  )
+  SELECT
+    D.Time
+    ,Lane
+    ,Volume_Created
+    ,AVG(Volume_Created)/AVG(Total_Volume) AS "%Volume"
+  FROM details AS D
+  JOIN total AS T
+    ON D.Time = T.Time
+  GROUP BY 1,2,3
+  
+---------------------Theo ngày---------------------
+
+WITH
+  total AS (
+    SELECT
+      DATE(C.orderdate) AS Time
+      ,COUNT(DISTINCT C.ordercode) AS Total_Volume
+    FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate" C
+    WHERE C.clientid IN (18692)
+      AND DATE(C.orderdate) BETWEEN DATE_TRUNC('MONTH',CURRENT_DATE - INTERVAL '2' MONTH) AND CURRENT_DATE - INTERVAL '1' DAY
+    GROUP BY 1
+  )
+, details AS (
+    SELECT
+      DATE(C.orderdate) AS Time
+      ,S.externallane AS Lane
+      ,COUNT(DISTINCT C.ordercode) AS Volume_Created
+    FROM "ghn-reporting"."ka"."dtm_ka_v3_createddate" C
+    JOIN "ghn-reporting"."ka"."dtm_ka_shopee" AS S
+      ON C.ordercode = S.ordercode
+    WHERE C.clientid IN (18692)
+      AND DATE(C.orderdate) BETWEEN DATE_TRUNC('MONTH',CURRENT_DATE - INTERVAL '2' MONTH) AND CURRENT_DATE - INTERVAL '1' DAY
+    GROUP BY 1,2
+  )
+  SELECT
+    D.Time
+    ,Lane
+    ,Volume_Created
+    ,AVG(Volume_Created)/AVG(Total_Volume) AS "%Volume"
+  FROM details AS D
+  JOIN total AS T
+    ON D.Time = T.Time
+  GROUP BY 1,2,3
+  

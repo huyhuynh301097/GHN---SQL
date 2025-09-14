@@ -93,7 +93,7 @@ WITH Detail AS (
 SELECT
   "Time"
   ,COALESCE(Region, 'XXX_Total') AS Region
-  ,ROUND(SUM(OntimeSuccessPU) * 1.0000 / COUNT(*), 4) AS "%OntimeSuccessPU"
+  ,ROUND(SUM(OntimeFirstPU) * 1.0000 / COUNT(*), 4) AS "%OntimeSuccessPU"
 FROM Detail
 GROUP BY GROUPING SETS (("Time", Region), ("Time"));
 
@@ -119,14 +119,15 @@ WITH Detail AS (
 SELECT
   "Time"
   ,COALESCE(Region, 'XXX_Total') AS Region
-  ,ROUND(SUM(OntimeSuccessPU) * 1.0000 / COUNT(*), 4) AS "%OntimeSuccessPU"
+  ,ROUND(SUM(OntimeFirstPU) * 1.0000 / COUNT(*), 4) AS "%OntimeSuccessPU"
 FROM Detail
 GROUP BY GROUPING SETS (("Time", Region), ("Time"));
 
 --Ontime 1st PU:Theo tháng
 WITH Detail AS (
   SELECT
-    MONTH(C.orderdate) AS "Time"
+    C.fromregionshortname AS Region
+    ,MONTH(C.orderdate) AS "Time"
     ,COUNT(C.ordercode) OVER (PARTITION BY MONTH(C.orderdate)) AS TotalVolume
     ,CASE
       WHEN (firstfailpicknote = 'Nhân viên gặp sự cố' AND DATE(firstupdatedpickeduptime) != DATE(secondcreatedpickeduptime) AND DATE(firstupdatedpickeduptime) >= DATE(C.orderdate)) THEN 0
@@ -144,6 +145,6 @@ WITH Detail AS (
 SELECT
   "Time"
   ,COALESCE(Region, 'XXX_Total') AS Region
-  ,ROUND(SUM(OntimeSuccessPU) * 1.0000 / COUNT(*), 4) AS "%OntimeSuccessPU"
+  ,ROUND(SUM(OntimeFirstPU) * 1.0000 / COUNT(*), 4) AS "%OntimeSuccessPU"
 FROM Detail
 GROUP BY GROUPING SETS (("Time", Region), ("Time"));

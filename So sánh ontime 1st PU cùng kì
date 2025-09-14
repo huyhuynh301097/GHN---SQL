@@ -1,0 +1,222 @@
+-------------------------------------------- Overview ------------------------------------------------
+WITH
+  Daily AS (
+    SELECT
+      DATE(C.orderdate) AS Date
+      ,COUNT(C.ordercode) AS Vol_Order_Date
+      ,ROUND(
+          SUM(CASE
+            WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime)) <= DATE(C.orderdate))
+              OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime)) <= DATE(C.orderdate + INTERVAL '1' DAY))
+            THEN 1
+            ELSE 0
+          END) * 100.00 / NULLIF(COUNT(C.ordercode), 0), 2
+      ) AS Ontime_1st_Rate
+    FROM dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = FALSE
+      AND NOT C.channel = 'WH - Shopee'
+      AND (DATE(orderdate) BETWEEN date_trunc('month', CURRENT_DATE - INTERVAL '1' MONTH) AND CURRENT_DATE - INTERVAL '1' DAY)
+    GROUP BY 1
+  )
+, Pivot AS (
+    SELECT
+      MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '1' DAY THEN Vol_Order_Date END) AS "Vol_D-1"
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '2' DAY THEN Vol_Order_Date END) AS "Vol_D-2"
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '8' DAY THEN Vol_Order_Date END) AS "Vol_D-8"
+      ,MAX(CASE WHEN Date = (CURRENT_DATE - INTERVAL '1' DAY) - INTERVAL '1' MONTH THEN Vol_Order_Date END) AS Vol_LastMonth
+
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '1' DAY THEN Ontime_1st_Rate END) AS "Ont_D-1"
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '2' DAY THEN Ontime_1st_Rate END) AS "Ont_D-2"
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '8' DAY THEN Ontime_1st_Rate END) AS "Ont_D-8"
+      ,MAX(CASE WHEN Date = (CURRENT_DATE - INTERVAL '1' DAY) - INTERVAL '1' MONTH THEN Ontime_1st_Rate END) AS Ont_LastMonth
+    FROM Daily
+  )
+  SELECT
+      Vol_LastMonth
+      ,"Vol_D-8"
+      ,"Vol_D-2"
+      ,"Vol_D-1"
+      ,FORMAT('%.1f%%', (CAST(("Vol_D-1" - "Vol_D-2") AS DOUBLE) * 100) / NULLIF("Vol_D-2", 0)) AS Vol_DoD
+      ,FORMAT('%.1f%%', (CAST(("Vol_D-1" - "Vol_D-8") AS DOUBLE) * 100) / NULLIF("Vol_D-8", 0)) AS Vol_WoW
+      ,FORMAT('%.1f%%', (CAST(("Vol_D-1" - Vol_LastMonth) AS DOUBLE) * 100) / NULLIF(Vol_LastMonth, 0)) AS Vol_MoM
+  
+      ,FORMAT('%.2f%%', Ont_LastMonth) AS Ont_LastMonth
+      ,FORMAT('%.2f%%', "Ont_D-8") AS "Ont_D-8"
+      ,FORMAT('%.2f%%', "Ont_D-2") AS "Ont_D-2"
+      ,FORMAT('%.2f%%', "Ont_D-1") AS "Ont_D-1"
+      ,FORMAT('%.2f%%', (CAST(("Ont_D-1" - "Ont_D-2") AS DOUBLE) * 100) / NULLIF("Ont_D-2", 0)) AS Ont_DoD
+      ,FORMAT('%.2f%%', (CAST(("Ont_D-1" - "Ont_D-8") AS DOUBLE) * 100) / NULLIF("Ont_D-8", 0)) AS Ont_WoW
+      ,FORMAT('%.2f%%', (CAST(("Ont_D-1" - Ont_LastMonth) AS DOUBLE) * 100) / NULLIF(Ont_LastMonth, 0)) AS Ont_MoM
+  FROM Pivot
+
+-------------------------------------------- Theo từng vùng/tỉnh/quận/phường/hub ------------------------------------------------
+WITH
+  Daily AS (
+    SELECT
+      DATE(C.orderdate) AS Date
+      ,C.fromregionshortname AS Region
+      ,COUNT(C.ordercode) AS Vol_Order_Date
+      ,ROUND(
+          SUM(CASE
+            WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime)) <= DATE(C.orderdate))
+              OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime)) <= DATE(C.orderdate + INTERVAL '1' DAY))
+            THEN 1
+            ELSE 0
+          END) * 100.00 / NULLIF(COUNT(C.ordercode), 0), 2
+      ) AS Ontime_1st_Rate
+    FROM dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = FALSE
+      AND NOT C.channel = 'WH - Shopee'
+      AND (DATE(orderdate) BETWEEN date_trunc('month', CURRENT_DATE - INTERVAL '1' MONTH) AND CURRENT_DATE - INTERVAL '1' DAY)
+    GROUP BY 1,2
+  )
+, Pivot AS (
+    SELECT
+      Region
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '1' DAY THEN Vol_Order_Date END) AS "Vol_D-1"
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '2' DAY THEN Vol_Order_Date END) AS "Vol_D-2"
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '8' DAY THEN Vol_Order_Date END) AS "Vol_D-8"
+      ,MAX(CASE WHEN Date = (CURRENT_DATE - INTERVAL '1' DAY) - INTERVAL '1' MONTH THEN Vol_Order_Date END) AS Vol_LastMonth
+
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '1' DAY THEN Ontime_1st_Rate END) AS "Ont_D-1"
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '2' DAY THEN Ontime_1st_Rate END) AS "Ont_D-2"
+      ,MAX(CASE WHEN Date = CURRENT_DATE - INTERVAL '8' DAY THEN Ontime_1st_Rate END) AS "Ont_D-8"
+      ,MAX(CASE WHEN Date = (CURRENT_DATE - INTERVAL '1' DAY) - INTERVAL '1' MONTH THEN Ontime_1st_Rate END) AS Ont_LastMonth
+    FROM Daily
+    GROUP BY 1
+  )
+  SELECT
+      Region
+      ,Vol_LastMonth
+      ,"Vol_D-8"
+      ,"Vol_D-2"
+      ,"Vol_D-1"
+      ,FORMAT('%.1f%%', (CAST(("Vol_D-1" - "Vol_D-2") AS DOUBLE) * 100) / NULLIF("Vol_D-2", 0)) AS Vol_DoD
+      ,FORMAT('%.1f%%', (CAST(("Vol_D-1" - "Vol_D-8") AS DOUBLE) * 100) / NULLIF("Vol_D-8", 0)) AS Vol_WoW
+      ,FORMAT('%.1f%%', (CAST(("Vol_D-1" - Vol_LastMonth) AS DOUBLE) * 100) / NULLIF(Vol_LastMonth, 0)) AS Vol_MoM
+  
+      ,FORMAT('%.2f%%', Ont_LastMonth) AS Ont_LastMonth
+      ,FORMAT('%.2f%%', "Ont_D-8") AS "Ont_D-8"
+      ,FORMAT('%.2f%%', "Ont_D-2") AS "Ont_D-2"
+      ,FORMAT('%.2f%%', "Ont_D-1") AS "Ont_D-1"
+      ,FORMAT('%.2f%%', (CAST(("Ont_D-1" - "Ont_D-2") AS DOUBLE) * 100) / NULLIF("Ont_D-2", 0)) AS Ont_DoD
+      ,FORMAT('%.2f%%', (CAST(("Ont_D-1" - "Ont_D-8") AS DOUBLE) * 100) / NULLIF("Ont_D-8", 0)) AS Ont_WoW
+      ,FORMAT('%.2f%%', (CAST(("Ont_D-1" - Ont_LastMonth) AS DOUBLE) * 100) / NULLIF(Ont_LastMonth, 0)) AS Ont_MoM
+  FROM Pivot
+  GROUP BY 1,2,3,4,5,9,10,11,12,13,14,15
+  ORDER BY 1 ASC
+
+-------------------------------------------- Top 10 theo từng vùng/tỉnh/quận/phường/hub ------------------------------------------------
+
+WITH
+  Raw AS(
+    SELECT
+      DATE(C.orderdate) AS Date
+      ,COUNT(C.ordercode) AS Total_Volume
+    FROM dtm_ka_v3_createddate AS C
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = FALSE
+      AND NOT C.channel = 'WH - Shopee'
+      AND (DATE(orderdate) BETWEEN date_trunc('month', CURRENT_DATE - INTERVAL '1' MONTH) AND CURRENT_DATE - INTERVAL '1' DAY)
+    GROUP BY 1
+  )
+, Daily AS (
+    SELECT
+      DATE(C.orderdate) AS Date
+      ,W.region_shortname AS Region
+      ,C.pickwh AS Hub
+      ,COUNT(C.ordercode) AS Vol_Order_Date
+      ,SUM(CASE
+            WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime)) <= DATE(C.orderdate))
+              OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime)) <= DATE(C.orderdate + INTERVAL '1' DAY))
+              OR (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+            THEN 1
+            ELSE 0
+          END) AS Ontime_1st_Rate
+      ,SUM(CASE
+            WHEN (HOUR(C.orderdate) < 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime)) <= DATE(C.orderdate))
+              OR (HOUR(C.orderdate) >= 18 AND DATE(COALESCE(C.firstupdatedpickeduptime, C.endpicktime)) <= DATE(C.orderdate + INTERVAL '1' DAY))
+              OR (C.currentstatus = 'cancel' AND DATE(C.canceltime) <= DATE(C.orderdate))
+            THEN 0
+            ELSE 1
+          END) AS Late_1st_Rate
+    FROM dtm_ka_v3_createddate AS C
+    JOIN "dw-ghn"."datawarehouse"."dim_warehouse" W
+      ON C.pickwarehouseid = W.warehouse_id
+    WHERE C.clientid IN (18692)
+      AND isexpecteddropoff = FALSE
+      AND NOT C.channel = 'WH - Shopee'
+      AND NOT C.pickwarehouseid IN (1297,1327)
+      AND (DATE(orderdate) BETWEEN date_trunc('month', CURRENT_DATE - INTERVAL '1' MONTH) AND CURRENT_DATE - INTERVAL '1' DAY)
+    GROUP BY 1,2,3
+  )
+, Pivot AS (
+    SELECT
+      Region
+      ,Hub
+      ,MAX(CASE WHEN D.Date = CURRENT_DATE - INTERVAL '1' DAY THEN Vol_Order_Date END) AS "Vol_D-1"
+      ,MAX(CASE WHEN D.Date = CURRENT_DATE - INTERVAL '2' DAY THEN Vol_Order_Date END) AS "Vol_D-2"
+      ,MAX(CASE WHEN D.Date = CURRENT_DATE - INTERVAL '8' DAY THEN Vol_Order_Date END) AS "Vol_D-8"
+      ,MAX(CASE WHEN D.Date = (CURRENT_DATE - INTERVAL '1' DAY) - INTERVAL '1' MONTH THEN Vol_Order_Date END) AS Vol_LastMonth
+
+      ,MAX(CASE WHEN D.Date = CURRENT_DATE - INTERVAL '1' DAY THEN Ontime_1st_Rate * 1.0000 / Vol_Order_Date END) AS "Ont_D-1"
+      ,MAX(CASE WHEN D.Date = CURRENT_DATE - INTERVAL '2' DAY THEN Ontime_1st_Rate * 1.0000 / Vol_Order_Date END) AS "Ont_D-2"
+      ,MAX(CASE WHEN D.Date = CURRENT_DATE - INTERVAL '8' DAY THEN Ontime_1st_Rate * 1.0000 / Vol_Order_Date END) AS "Ont_D-8"
+      ,MAX(CASE WHEN D.Date = (CURRENT_DATE - INTERVAL '1' DAY) - INTERVAL '1' MONTH THEN Ontime_1st_Rate * 1.0000 / Vol_Order_Date END) AS Ont_LastMonth
+      ,MAX(CASE WHEN D.Date = CURRENT_DATE - INTERVAL '1' DAY THEN Late_1st_Rate * 1.00000000 / Total_Volume END) AS "Contribute_D-1"
+
+    FROM Daily AS D
+    JOIN Raw AS R
+      ON D.Date = R.Date
+    GROUP BY 1,2
+  )
+, Final AS (
+    SELECT
+        Region
+        ,Hub
+        ,Vol_LastMonth
+        ,"Vol_D-8"
+        ,"Vol_D-2"
+        ,"Vol_D-1"
+        ,(CAST(("Vol_D-1" - "Vol_D-2") AS DOUBLE) / NULLIF("Vol_D-2", 0)) AS Vol_DoD
+        ,(CAST(("Vol_D-1" - "Vol_D-8") AS DOUBLE) / NULLIF("Vol_D-8", 0)) AS Vol_WoW
+        ,(CAST(("Vol_D-1" - Vol_LastMonth) AS DOUBLE) / NULLIF(Vol_LastMonth, 0)) AS Vol_MoM
+    
+        ,Ont_LastMonth
+        ,"Ont_D-8"
+        ,"Ont_D-2"
+        ,"Ont_D-1"
+        ,("Ont_D-1" - "Ont_D-2") AS Ont_DoD
+        ,("Ont_D-1" - "Ont_D-8") AS Ont_WoW
+        ,("Ont_D-1" - Ont_LastMonth) AS Ont_MoM
+        ,"Contribute_D-1"
+    FROM Pivot
+  )
+, Rank_Table AS (
+    SELECT
+      *
+      ,ROW_NUMBER() OVER (PARTITION BY Region ORDER BY "Contribute_D-1" DESC) AS "Rank"
+    FROM Final
+  )
+  SELECT
+    Region
+    ,Hub
+    ,Vol_LastMonth
+    ,"Vol_D-8"
+    ,"Vol_D-2"
+    ,"Vol_D-1"
+    ,Vol_DoD
+    ,Vol_WoW
+    ,Vol_MoM
+    ,Ont_LastMonth
+    ,"Ont_D-8"
+    ,"Ont_D-2"
+    ,"Ont_D-1"
+    ,Ont_DoD
+    ,Ont_WoW
+    ,Ont_MoM
+    ,"Contribute_D-1"
+  FROM Rank_Table
+  WHERE "Rank" <= 10

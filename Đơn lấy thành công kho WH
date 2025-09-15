@@ -1,0 +1,12 @@
+SELECT
+  DATE(endpicktime) AS Ngay_lay_thanh_cong
+  ,pickwh AS Hub
+  ,clientid AS ID
+  ,COUNT(*) AS Volume_lay_thanh_cong
+FROM "ghn-reporting"."ka".dtm_ka_v3_createddate
+WHERE 1 = 1
+  AND clientid IN (18692,3892833)
+  AND DATE(endpicktime) BETWEEN CURRENT_DATE - INTERVAL '10' DAY AND CURRENT_DATE
+  AND pickwarehouseid IN (1327,1297)
+  AND channel LIKE '%WH%'
+GROUP BY 1, 2, 3

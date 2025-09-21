@@ -1,0 +1,37 @@
+WITH Raw AS (
+    SELECT
+        C.ordercode AS OrderCode
+        , DATE(C.orderdate) AS OrderDate
+        , C.towardcode AS ward_id
+        , DATE(date_parse(GS.orderdate, '%Y/%m/%d')) AS RefDate
+    FROM "gsheet-data_input_from_external"."default"."input_customer_shopee" GS
+    JOIN dtm_ka_v3_createddate C
+      ON GS.towardcode = C.towardcode
+     AND DATE(C.orderdate) BETWEEN (DATE(date_parse(GS.orderdate, '%Y/%m/%d')) - INTERVAL '15' DAY)
+                               AND (DATE(date_parse(GS.orderdate, '%Y/%m/%d')) - INTERVAL '1' DAY)
+    WHERE C.clientid IN (18692)
+      AND C.channel <> 'WH - Shopee'
+      AND C.isexpecteddropoff = FALSE
+),
+Pivot AS (
+    SELECT
+        ward_id
+        , RefDate
+        , COUNT(DISTINCT OrderDate) AS NgayPhatSinhDon
+        , COUNT(*) AS Volume_Total
+    FROM Raw
+    GROUP BY ward_id, RefDate
+)
+SELECT
+    P.ward_id
+    , P.RefDate
+    , P.Volume_Total
+    , P.NgayPhatSinhDon
+    , P.Volume_Total * 1.0 / P.NgayPhatSinhDon AS DonTrungBinhNgay
+    , W.region_shortname AS Region
+    , W.province_name AS Province
+    , W.district_name AS District
+    , W.ward_name AS Ward
+FROM Pivot AS P
+JOIN "dw-ghn"."datawarehouse"."dim_location_ward" W
+  ON P.ward_id = W.ward_id;

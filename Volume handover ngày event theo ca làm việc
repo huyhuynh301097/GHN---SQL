@@ -1,0 +1,39 @@
+WITH 
+  created_table AS (
+    SELECT * FROM (
+      VALUES
+        (1327, DATE '2025-09-08', TIMESTAMP '2025-09-08 08:30:00', TIMESTAMP '2025-09-09 07:00:00'),
+        (1327, DATE '2025-09-09', TIMESTAMP '2025-09-09 07:00:00', TIMESTAMP '2025-09-10 07:00:00'),
+        (1327, DATE '2025-09-10', TIMESTAMP '2025-09-10 07:00:00', TIMESTAMP '2025-09-11 07:00:00'),
+        (1327, DATE '2025-09-11', TIMESTAMP '2025-09-11 07:00:00', TIMESTAMP '2025-09-12 07:00:00'),
+        (1327, DATE '2025-09-12', TIMESTAMP '2025-09-12 07:00:00', TIMESTAMP '2025-09-13 02:00:00'),
+        (1327, DATE '2025-09-13', TIMESTAMP '2025-09-13 09:00:00', TIMESTAMP '2025-09-14 02:00:00'),
+        (1297, DATE '2025-09-08', TIMESTAMP '2025-09-08 11:00:00', TIMESTAMP '2025-09-09 07:00:00'),
+        (1297, DATE '2025-09-09', TIMESTAMP '2025-09-09 07:00:00', TIMESTAMP '2025-09-10 07:00:00'),
+        (1297, DATE '2025-09-10', TIMESTAMP '2025-09-10 07:00:00', TIMESTAMP '2025-09-11 07:00:00'),
+        (1297, DATE '2025-09-11', TIMESTAMP '2025-09-11 11:00:00', TIMESTAMP '2025-09-11 23:00:00'),
+        (1297, DATE '2025-09-12', TIMESTAMP '2025-09-12 07:00:00', TIMESTAMP '2025-09-13 02:00:00'),
+        (1297, DATE '2025-09-13', TIMESTAMP '2025-09-13 09:00:00', TIMESTAMP '2025-09-13 23:00:00')
+      ) AS t (pickwarehouseid, shift_date, start_time, end_time)
+  )
+, filer_table AS (
+    SELECT
+      pickwarehouseid
+      , pickwh
+      , endpicktime
+    FROM "ghn-reporting"."ka".dtm_ka_v3_createddate
+    WHERE pickwarehouseid IN (1327,1297)
+      AND channel LIKE '%WH%'
+      AND endpicktime BETWEEN TIMESTAMP '2025-09-08 00:00:00' AND TIMESTAMP '2025-09-15 00:00:00'
+  )
+  SELECT
+    s.shift_date AS Ngay_lay_thanh_cong
+    , c.pickwh AS Hub
+    , COUNT(*) AS Volume_lay_thanh_cong
+  FROM filer_table c
+  JOIN created_table s
+    ON c.pickwarehouseid = s.pickwarehouseid
+   AND c.endpicktime >= s.start_time
+   AND c.endpicktime <  s.end_time
+  GROUP BY 1, 2
+  ORDER BY 1, 2

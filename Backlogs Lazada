@@ -29,8 +29,7 @@ WITH
   SELECT
     *
   FROM Raw
-  WHERE Status NOT IN ('ready_to_pick','picking')
-    AND (Province_Deli IN ('Hưng Yên') OR (Province_Pick IN ('Hưng Yên') AND Hub_Current = Hub_Pick))
+  WHERE Province_Deli IN ('Hưng Yên') OR (Province_Pick IN ('Hưng Yên') AND Hub_Current = Hub_Pick))
     
     
     
